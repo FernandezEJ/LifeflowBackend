@@ -49,13 +49,6 @@ class DonationRecordController extends Controller
     // ========================================
     public function summary(Request $request, DonorAchievementService $achievements): JsonResponse
     {
-        // Count each completed participation once, plus completed legacy records not represented by it.
-        $completed = $request->user()->donationParticipations()->where('status', 'completed');
-        $legacy = $request->user()->donationRecords()->where('status', 'completed')
-            ->where(fn ($query) => $query->whereNull('donation_participation_id')
-                ->orWhereNotIn('donation_participation_id', (clone $completed)->select('id')))->count();
-        $count = $completed->count() + $legacy;
-
-        return response()->json(['total_donations' => $count, 'achievement' => $achievements->calculate($count)]);
+        return response()->json($achievements->summary($request->user()));
     }
 }

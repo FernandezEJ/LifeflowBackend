@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreEligibilityAssessmentRequest;
+use App\Services\DonationCooldown;
 use App\Services\EligibilityCooldown;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -44,7 +45,7 @@ class EligibilityAssessmentController extends Controller
     {
         $assessment = $request->user()->eligibilityAssessments()->orderByDesc('assessed_at')->orderByDesc('id')->first();
 
-        return response()->json(['message' => $assessment ? 'Latest pre-screening result.' : 'No pre-screening assessment yet.', 'assessment' => $assessment, ...$cooldown->metadata($assessment)]);
+        return response()->json(['message' => $assessment ? 'Latest pre-screening result.' : 'No pre-screening assessment yet.', 'assessment' => $assessment, ...$cooldown->metadata($assessment), ...app(DonationCooldown::class)->metadata($request->user())]);
     }
 
     // ========================================

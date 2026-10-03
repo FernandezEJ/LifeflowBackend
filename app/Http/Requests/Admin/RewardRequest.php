@@ -1,0 +1,35 @@
+<?php
+
+namespace App\Http\Requests\Admin;
+
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
+
+class RewardRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return true;
+    }
+
+    protected function prepareForValidation(): void
+    {
+        if (is_string($this->input('name'))) {
+            $this->merge(['name' => trim($this->input('name'))]);
+        }
+    }
+
+    public function rules(): array
+    {
+        return [
+            'name' => ['required', 'string', 'max:255'],
+            'amount_mode' => ['required', 'in:fixed,custom'],
+            'voucher_value' => ['required', 'numeric', 'decimal:0,2', 'min:0.01', 'max:100000', Rule::when($this->input('amount_mode') === 'fixed', Rule::in(range(100, 1000, 100)))],
+            'points_cost' => ['required', 'integer', 'min:1', 'max:2147483647'],
+            'stock_quantity' => ['required', 'integer', 'min:0', 'max:2147483647'],
+            'expected_stock' => [Rule::requiredIf($this->route('reward') !== null), 'integer', 'min:0', 'max:2147483647'],
+            'status' => ['required', 'in:active,inactive'],
+            'image' => ['sometimes', 'nullable', 'image', 'mimes:jpeg,png', 'max:5120'],
+        ];
+    }
+}

@@ -4,7 +4,10 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\DonationOpportunity;
+use App\Services\DonationCooldown;
 use App\Services\EligibilityCooldown;
+use App\Services\PrivateDonationProof;
+use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -45,14 +48,21 @@ class DonationParticipationController extends Controller
         return DB::transaction(function () use ($request, $id, $redCross) {
             $user = $request->user()->newQuery()->lockForUpdate()->findOrFail($request->user()->id);
             // One active activity across both sources; use the same donor lock as assessments.
-            $active = $user->donationParticipations()
-                ->whereIn('status', ['pending', 'for_verification', 'needs_revision'])
+            $active = $user->donationParticipations()->active()
                 ->orderByDesc('joined_at')->orderByDesc('id')->lockForUpdate()->first();
             if ($active !== null) {
                 return response()->json([
                     'reason' => 'active_participation_exists',
                     'message' => 'Complete or cancel your current activity before joining another donation opportunity.',
                     'participation_id' => $active->id,
+                ], 409);
+            }
+            $rest = app(DonationCooldown::class)->metadata($user, true);
+            if ($rest['is_on_donation_cooldown']) {
+                return response()->json([
+                    'reason' => 'donation_cooldown_active',
+                    'message' => 'You are currently in your donation rest period. You can donate again starting '.CarbonImmutable::parse($rest['next_eligible_donation_at'])->format('F j, Y').'.',
+                    ...$rest,
                 ], 409);
             }
             $latest = $user->eligibilityAssessments()
@@ -184,21 +194,12 @@ class DonationParticipationController extends Controller
         }
     }
 
-    // Future admin access needs an explicit authorization policy; no admin bypass exists here.
+    // Donors may download only their own private proof.
     public function downloadProof(Request $request, int $id)
     {
         $item = $request->user()->donationParticipations()->findOrFail($id);
-        $prefix = 'donation-proofs/'.$request->user()->id.'/'.$item->id.'/';
-        $path = $item->proof_path;
-        abort_unless(is_string($path) && str_starts_with($path, $prefix)
-            && preg_match('~^[a-f0-9-]{36}\\.(jpg|png|pdf)$~D', substr($path, strlen($prefix))), 404);
-        abort_unless(Storage::disk('proofs')->exists($path), 404);
 
-        return Storage::disk('proofs')->download($path, basename($path), [
-            'Content-Type' => $item->proof_mime_type,
-            'Cache-Control' => 'private, no-store',
-            'X-Content-Type-Options' => 'nosniff',
-        ]);
+        return app(PrivateDonationProof::class)->response($item);
     }
 
     // ========================================

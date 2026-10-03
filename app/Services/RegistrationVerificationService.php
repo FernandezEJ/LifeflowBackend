@@ -6,6 +6,7 @@ use App\Jobs\SendRegistrationVerificationCode;
 use App\Mail\RegistrationVerificationMail;
 use App\Models\DonorProfile;
 use App\Models\User;
+use App\Rules\AdultDonor;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Cache;
@@ -56,7 +57,8 @@ class RegistrationVerificationService
         DB::table('pending_registrations')->upsert([[
             'email_hash' => $emailHash, 'pending_token_hash' => hash('sha256', $token),
             'request_id' => $requestId, 'payload' => Crypt::encryptString(json_encode(Arr::except($data, ['password', 'password_confirmation', 'accepted_at']))),
-            'password_hash' => Hash::make($data['password']), 'code_hash' => null,
+            // The shared password column remains valid; new donors never need to know this secret.
+            'password_hash' => Hash::make($data['password'] ?? Str::random(64)), 'code_hash' => null,
             'expires_at' => now()->addMinutes(15), 'resend_at' => now()->addSeconds(60),
             'attempt_count' => 0, 'delivery_claimed_at' => null, 'verified_at' => null, 'used_at' => null,
             'created_at' => now(), 'updated_at' => now(),
@@ -179,7 +181,13 @@ class RegistrationVerificationService
                 Validator::make($data, [
                     'email' => [Rule::unique('users', 'email')],
                     'mobile_number' => [Rule::unique('donor_profiles', 'mobile_number')],
+                    'birth_date' => ['required', 'date_format:Y-m-d', new AdultDonor],
+                    'middle_name' => ['nullable', 'string', 'regex:/^\p{L}$/uD'],
                 ])->validate();
+                // Recheck legacy number variants inside the final account-creation transaction.
+                if (DonorProfile::whereIn('mobile_number', DonorIdentity::variants($data['mobile_number']))->exists()) {
+                    throw ValidationException::withMessages(['mobile_number' => 'The mobile number has already been taken.']);
+                }
                 $user = User::create([
                     'name' => DonorProfile::accountName($data), 'email' => $data['email'],
                     'password' => $row->password_hash, 'email_verified_at' => now(),

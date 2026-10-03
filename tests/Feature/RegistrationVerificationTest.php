@@ -131,7 +131,7 @@ class RegistrationVerificationTest extends TestCase
 
     public function test_request_validation_and_legacy_endpoint_cannot_bypass_verification(): void
     {
-        $this->postJson('/api/register/request-verification', [])->assertUnprocessable()->assertJsonValidationErrors(['email', 'password', 'mobile_number', 'birth_date']);
+        $this->postJson('/api/register/request-verification', [])->assertUnprocessable()->assertJsonValidationErrors(['email', 'mobile_number', 'birth_date']);
         $this->postJson('/api/register/request-verification', $this->data(['email' => 'invalid']))->assertUnprocessable();
         $this->postJson('/api/register/request-verification', $this->data(['birth_date' => now()->addDay()->toDateString()]))->assertUnprocessable();
         $this->postJson('/api/register', $this->data())->assertStatus(202)->assertJsonMissingPath('token')->assertJsonMissingPath('code');

@@ -2,6 +2,9 @@
 
 namespace App\Http\Requests;
 
+use App\Models\DonorProfile;
+use App\Rules\AdultDonor;
+use App\Services\DonorIdentity;
 use App\Services\RegistrationVerificationService;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -29,11 +32,11 @@ class DonorProfileRequest extends FormRequest
             $this->merge(['email' => strtolower(trim($this->input('email')))]);
         }
         if (is_string($this->input('mobile_number'))) {
-            $mobile = preg_replace('/[\s()-]/', '', $this->input('mobile_number'));
-            if (preg_match('/^09[0-9]{9}$/D', $mobile)) {
-                $mobile = '+63'.substr($mobile, 1);
-            }
-            $this->merge(['mobile_number' => $mobile]);
+            $this->merge(['mobile_number' => DonorIdentity::mobile($this->input('mobile_number'))]);
+        }
+        // Keep middle_name for compatibility; new donor input stores an uppercase initial.
+        if (is_string($this->input('middle_name'))) {
+            $this->merge(['middle_name' => mb_strtoupper(trim($this->input('middle_name'))) ?: null]);
         }
     }
 
@@ -50,11 +53,17 @@ class DonorProfileRequest extends FormRequest
 
         $rules = [
             'first_name' => [...$required, 'string', 'max:80'],
-            'middle_name' => ['sometimes', 'nullable', 'string', 'max:80'],
+            'middle_name' => ['sometimes', 'nullable', 'string', 'regex:/^\p{L}$/uD'],
             'last_name' => [...$required, 'string', 'max:80'],
             'email' => $registering ? ['required', 'string', 'email', 'max:255', Rule::unique('users', 'email')] : ['missing'],
-            'mobile_number' => [...$required, 'string', 'regex:/^\+639[0-9]{9}$/D', Rule::unique('donor_profiles', 'mobile_number')->ignore($user?->donorProfile?->id)],
-            'birth_date' => [...$required, 'date_format:Y-m-d', 'before:today'],
+            'mobile_number' => [...$required, 'string', 'regex:/^\+639[0-9]{9}$/D', Rule::unique('donor_profiles', 'mobile_number')->ignore($user?->donorProfile?->id),
+                function (string $attribute, mixed $value, \Closure $fail) use ($user): void {
+                    if (is_string($value) && DonorProfile::whereIn('mobile_number', DonorIdentity::variants($value))
+                        ->when($user, fn ($query) => $query->where('user_id', '!=', $user->id))->exists()) {
+                        $fail('The mobile number has already been taken.');
+                    }
+                }],
+            'birth_date' => [...$required, 'date_format:Y-m-d', new AdultDonor],
             'gender' => [...$required, Rule::in(['Male', 'Female'])],
             'blood_type' => [...$required, Rule::in(['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'])],
             'user_id' => ['prohibited'],
@@ -73,12 +82,13 @@ class DonorProfileRequest extends FormRequest
                 $rules[$field] = ['prohibited'];
             }
 
-            $rules['password'] = ['required', 'string', Password::min(8), 'confirmed', 'max:128', function (string $attribute, mixed $value, \Closure $fail): void {
+            // Old clients may still supply a password. Passwordless clients omit it.
+            $rules['password'] = ['sometimes', 'string', Password::min(8), 'confirmed', 'max:128', function (string $attribute, mixed $value, \Closure $fail): void {
                 if (is_string($value) && (str_contains($value, "\0") || (config('hashing.driver', 'bcrypt') === 'bcrypt' && strlen($value) > 72))) {
                     $fail('Use a password of at most 72 bytes without null characters.');
                 }
             }];
-            $rules['password_confirmation'] = ['required', 'string'];
+            $rules['password_confirmation'] = ['required_with:password', 'string'];
         }
 
         return $rules;

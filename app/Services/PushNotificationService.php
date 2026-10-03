@@ -26,6 +26,11 @@ class PushNotificationService
 
             return;
         }
+        if ($notification->type === 'donation_cooldown_complete' && ! app(DonationCooldown::class)->currentNotification($notification)) {
+            $notification->update(['push_status' => 'not_due']);
+
+            return;
+        }
         if (! config('services.fcm.enabled') || ! config('services.fcm.project_id') || ! is_file((string) config('services.fcm.credentials'))) {
             $notification->update(['push_status' => 'not_configured']);
 

@@ -32,7 +32,7 @@ class DonorProfileTest extends TestCase
     public function test_full_registration_and_authentication_flow(): void
     {
         $response = $this->registerVerified($this->payload())->assertCreated()
-            ->assertJsonPath('user.name', 'Juan Santos Dela Cruz')
+            ->assertJsonPath('user.name', 'Juan S Dela Cruz')
             ->assertJsonPath('donor_profile.mobile_number', '+639171234567')
             ->assertJsonPath('donor_profile.birth_date', '2004-09-17')
             ->assertJsonMissingPath('user.password')->assertJsonMissingPath('user.remember_token');
@@ -254,7 +254,7 @@ class DonorProfileTest extends TestCase
             $this->withToken($token)->putJson('/api/donor-profile', [
                 'first_name' => 'Changed',
             ])->assertStatus(500)->assertExactJson(['message' => 'Profile could not be updated. Please try again.']);
-            $this->assertSame('Juan Santos Dela Cruz', User::firstOrFail()->name);
+            $this->assertSame('Juan S Dela Cruz', User::firstOrFail()->name);
             $this->assertSame('juan@example.com', User::firstOrFail()->email);
             $this->assertSame('Juan', DonorProfile::firstOrFail()->first_name);
         } finally {
@@ -291,7 +291,7 @@ class DonorProfileTest extends TestCase
     private function payload(array $overrides = []): array
     {
         return array_replace([
-            'first_name' => 'Juan', 'middle_name' => 'Santos', 'last_name' => 'Dela Cruz',
+            'first_name' => 'Juan', 'middle_name' => 'S', 'last_name' => 'Dela Cruz',
             'email' => 'juan@example.com', 'mobile_number' => '09171234567',
             'password' => 'password123', 'accepted_terms' => true, 'acknowledged_privacy' => true, 'acknowledged_prescreening' => true,
             'password_confirmation' => 'password123',

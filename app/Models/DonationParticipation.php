@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Facades\DB;
@@ -14,6 +15,12 @@ class DonationParticipation extends Model
     // ========================================
     protected $guarded = ['*'];
 
+    /** Shared with joining and Flowie; revision requests still occupy the donor's active activity. */
+    public function scopeActive(Builder $query): Builder
+    {
+        return $query->whereIn('status', ['pending', 'for_verification', 'needs_revision']);
+    }
+
     // ========================================
     // ATOMIC TRUSTED COMPLETION
     // Lock the donor before changing status, then save, award and notify in one
@@ -23,6 +30,8 @@ class DonationParticipation extends Model
     public function save(array $options = []): bool
     {
         if ($this->status === 'completed' && ($this->isDirty('status') || ! $this->exists)) {
+            $this->verified_at ??= now();
+
             return DB::transaction(function () use ($options) {
                 User::whereKey($this->user_id)->lockForUpdate()->firstOrFail();
 
@@ -51,7 +60,7 @@ class DonationParticipation extends Model
 
     public function opportunity(): BelongsTo
     {
-        return $this->belongsTo(DonationOpportunity::class, 'donation_opportunity_id')->withDefault(function (DonationOpportunity $opportunity, DonationParticipation $participation): void {
+        return $this->belongsTo(DonationOpportunity::class, 'donation_opportunity_id')->withTrashed()->withDefault(function (DonationOpportunity $opportunity, DonationParticipation $participation): void {
             if ($participation->source_type === 'red_cross_dagupan') {
                 $opportunity->forceFill(DonationOpportunity::redCrossDagupan());
             }

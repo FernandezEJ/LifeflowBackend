@@ -2,8 +2,22 @@
 
 namespace App\Services;
 
+use App\Models\User;
+
 class DonorAchievementService
 {
+    /** Canonical donor summary: completed participations plus unrepresented completed legacy records. */
+    public function summary(User $user): array
+    {
+        $completed = $user->donationParticipations()->where('status', 'completed');
+        $legacy = $user->donationRecords()->where('status', 'completed')
+            ->where(fn ($query) => $query->whereNull('donation_participation_id')
+                ->orWhereNotIn('donation_participation_id', (clone $completed)->select('id')))->count();
+        $count = $completed->count() + $legacy;
+
+        return ['total_donations' => $count, 'achievement' => $this->calculate($count)];
+    }
+
     // ========================================
     // DONOR ACHIEVEMENT MILESTONES
     // Chooses the highest reached milestone from a completed donation count.

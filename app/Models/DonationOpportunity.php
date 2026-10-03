@@ -5,9 +5,39 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Facades\Storage;
 
 class DonationOpportunity extends Model
 {
+    use SoftDeletes;
+
+    protected $hidden = ['image_path', 'created_by'];
+
+    protected $appends = ['image_url', 'donation_date'];
+
+    public function getImageUrlAttribute(): ?string
+    {
+        return $this->image_path ? Storage::disk('public')->url($this->image_path) : null;
+    }
+
+    public function getDonationDateAttribute(): ?string
+    {
+        return $this->event_date?->toDateString();
+    }
+
+    public function managementStatus(): string
+    {
+        if ($this->trashed()) {
+            return 'deleted';
+        }
+        if ($this->status === 'draft') {
+            return 'draft';
+        }
+
+        return $this->status === 'published' && $this->published_at?->lte(now()) && $this->expires_at?->gt(now()) ? 'active' : 'expired';
+    }
+
     // ========================================
     // SERVER-MANAGED ANNOUNCEMENT
     // No donor write endpoint exists for this model.
@@ -25,7 +55,7 @@ class DonationOpportunity extends Model
     // ========================================
     public function scopeActive(Builder $query): void
     {
-        $query->where('status', 'published')->where('published_at', '<=', now())->where('expires_at', '>', now());
+        $query->whereNull('donation_opportunities.deleted_at')->where('status', 'published')->where('published_at', '<=', now())->where('expires_at', '>', now());
     }
 
     public function participations(): HasMany

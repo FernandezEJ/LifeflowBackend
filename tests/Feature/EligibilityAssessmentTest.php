@@ -89,6 +89,12 @@ class EligibilityAssessmentTest extends TestCase
             $cases['invalid '.$key] = [['answers' => array_replace($valid, [$key => $value])]];
         }
 
+        foreach (array_keys($valid) as $key) {
+            foreach ([null, true, 1, [], 'MAYBE', 'yes', 'NOT_APPLICABLE'] as $index => $value) {
+                $cases['invalid revised '.$key.' '.$index] = [['answers' => array_replace($valid, [$key => $value])]];
+            }
+        }
+
         return $cases;
     }
 
@@ -161,7 +167,7 @@ class EligibilityAssessmentTest extends TestCase
         $migration->up();
         $this->assertSame($before, DB::table('eligibility_assessments')->orderBy('id')->get()->toJson());
         $this->withToken($user->createToken('upgrade')->plainTextToken)
-            ->postJson('/api/eligibility-assessments', ['answers' => [...EligibilityEvaluatorTest::answers(), 'weight' => 49]])
+            ->postJson('/api/eligibility-assessments', ['answers' => [...EligibilityEvaluatorTest::answers(), 'weightAtLeast50Kg' => 'NO']])
             ->assertCreated()->assertJsonPath('assessment.result', 'not_eligible');
         $this->assertDatabaseCount('eligibility_assessments', 4);
     }

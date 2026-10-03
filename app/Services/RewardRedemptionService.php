@@ -38,7 +38,9 @@ class RewardRedemptionService
             }
             $voucher = new UserVoucher;
             $voucher->forceFill(['user_id' => $userId, 'reward_id' => $rewardId, 'points_spent' => $reward->points_cost,
-                'status' => 'available', 'voucher_token' => Str::random(64), 'redemption_key' => $requestKey])->save();
+                'status' => 'available', 'voucher_token' => Str::random(64), 'redemption_key' => $requestKey,
+                'reward_snapshot' => ['id' => $reward->id, 'name' => $reward->name, 'description' => $reward->description,
+                    'voucher_value' => $reward->voucher_value, 'points_cost' => $reward->points_cost, 'image_url' => $reward->image_url]])->save();
             app(PointsService::class)->deduct($voucher);
             $reward->stock_quantity--;
             $reward->save();

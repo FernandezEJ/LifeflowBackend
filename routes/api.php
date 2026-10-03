@@ -5,13 +5,16 @@ use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\DeviceTokenController;
 use App\Http\Controllers\Api\DonationParticipationController;
 use App\Http\Controllers\Api\DonationRecordController;
+use App\Http\Controllers\Api\DonorLoginController;
 use App\Http\Controllers\Api\DonorProfileController;
 use App\Http\Controllers\Api\EligibilityAssessmentController;
 use App\Http\Controllers\Api\FlowieController;
+use App\Http\Controllers\Api\FlowieConversationController;
 use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\PasswordResetController;
 use App\Http\Controllers\Api\RegistrationVerificationController;
 use App\Http\Controllers\Api\RewardsController;
+use App\Http\Middleware\EnsureDonorUser;
 use Illuminate\Support\Facades\Route;
 
 // ========================================
@@ -24,6 +27,9 @@ Route::post('/register/request-verification', [RegistrationVerificationControlle
 Route::post('/register/verify-email', [RegistrationVerificationController::class, 'verify'])->middleware('throttle:registration-verify');
 Route::post('/register/resend-verification', [RegistrationVerificationController::class, 'resend'])->middleware('throttle:registration-request');
 Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:login');
+// Donor passwordless authentication is separate from Admin email/password routes.
+Route::post('/auth/request-login-code', [DonorLoginController::class, 'requestCode'])->middleware('throttle:donor-login-request');
+Route::post('/auth/verify-login-code', [DonorLoginController::class, 'verify'])->middleware('throttle:donor-login-verify');
 
 // Password recovery stays public, with independent IP limits for each step.
 Route::post('/forgot-password/request', [PasswordResetController::class, 'requestCode'])->middleware('throttle:password-reset-request');
@@ -47,6 +53,8 @@ Route::middleware('auth:sanctum')->group(function () {
 // ========================================
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('/donation-opportunities', [DonationParticipationController::class, 'opportunities']);
+    Route::get('/announcements', [DonationParticipationController::class, 'opportunities']);
+    Route::get('/announcements/{id}', [DonationParticipationController::class, 'opportunity'])->whereNumber('id');
     Route::get('/donation-opportunities/{id}', [DonationParticipationController::class, 'opportunity'])->where('id', '[0-9]+|red-cross-dagupan');
     Route::post('/donation-opportunities/{id}/join', [DonationParticipationController::class, 'join'])->where('id', '[0-9]+|red-cross-dagupan');
     Route::get('/donation-participations', [DonationParticipationController::class, 'index']);
@@ -116,10 +124,21 @@ Route::middleware('auth:sanctum')->group(function () {
 });
 
 Route::middleware(['auth:sanctum', 'throttle:10,1'])->group(function () {
+    Route::post('/profile/change-email/confirm-login', [DonorLoginController::class, 'confirmEmail'])->middleware('throttle:donor-login-verify');
     Route::post('/profile/change-email/request', [AccountSettingsController::class, 'requestCode']);
     Route::post('/profile/change-email/resend', [AccountSettingsController::class, 'resend']);
     Route::post('/profile/change-email/verify', [AccountSettingsController::class, 'verify']);
     Route::post('/profile/change-password', [AccountSettingsController::class, 'password']);
 });
 
-Route::post('/flowie/chat', [FlowieController::class, 'chat'])->middleware(['auth:sanctum', 'throttle:10,1,flowie-chat']);
+// Flowie talks; Laravel decides. These donor-only routes persist conversation text, never official outcomes.
+Route::middleware(['auth:sanctum', EnsureDonorUser::class])->prefix('flowie')->group(function () {
+    Route::post('/chat', [FlowieController::class, 'chat'])->middleware('throttle:10,1,flowie-chat');
+    Route::get('/conversations', [FlowieConversationController::class, 'index']);
+    Route::get('/conversations/recently-deleted', [FlowieConversationController::class, 'recentlyDeleted']);
+    Route::post('/conversations/active/end', [FlowieConversationController::class, 'end'])->middleware('throttle:30,1');
+    Route::get('/conversations/{conversation}', [FlowieConversationController::class, 'show'])->whereNumber('conversation');
+    Route::post('/conversations/{conversation}/end', [FlowieConversationController::class, 'end'])->whereNumber('conversation')->middleware('throttle:30,1');
+    Route::delete('/conversations/{conversation}', [FlowieConversationController::class, 'destroy'])->whereNumber('conversation')->middleware('throttle:30,1');
+    Route::post('/conversations/{conversation}/restore', [FlowieConversationController::class, 'restore'])->whereNumber('conversation')->middleware('throttle:30,1');
+});

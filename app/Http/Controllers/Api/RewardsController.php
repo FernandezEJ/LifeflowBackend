@@ -57,7 +57,7 @@ class RewardsController extends Controller
         $vouchers->reconcile($request->user()->id);
 
         return response()->json(['voucher' => $vouchers->payload($voucher->refresh()),
-            'summary' => $points->summary($request->user()->id), 'reward' => Reward::findOrFail($id),
+            'summary' => $points->summary($request->user()->id), 'reward' => Reward::withTrashed()->findOrFail($id),
             'server_time' => now()->toISOString()]);
     }
 

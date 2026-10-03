@@ -85,6 +85,8 @@ class RedCrossDonationTest extends TestCase
         $this->getJson('/api/donation-participations/'.$id)->assertJsonPath('participation.status', 'completed');
         $this->assertDatabaseCount('donation_records', 0);
         // The permanent source supports later donations, rather than one join for life.
+        $this->travelTo(now()->addMonthsNoOverflow(3));
+        $this->donor->eligibilityAssessments()->create(['result' => 'eligible', 'answers' => [], 'reasons' => [], 'assessed_at' => now()]);
         $this->join()->assertCreated();
     }
 
@@ -106,6 +108,10 @@ class RedCrossDonationTest extends TestCase
     {
         $sum = 0;
         foreach ([300, 350, 400, 450, 500, 500] as $index => $points) {
+            if ($index > 0) {
+                $this->travelTo(now()->addMonthsNoOverflow(3));
+                $this->donor->eligibilityAssessments()->create(['result' => 'eligible', 'answers' => [], 'reasons' => [], 'assessed_at' => now()]);
+            }
             if ($index === 0) {
                 $admin = $this->admin();
                 $id = $this->postJson('/api/donation-opportunities/'.$admin->id.'/join')->assertCreated()

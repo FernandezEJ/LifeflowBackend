@@ -48,7 +48,7 @@ class FlowieChatTest extends TestCase
         Http::fake([self::ENDPOINT => Http::response($this->success())]);
         $history = array_map(fn ($i) => ['role' => $i % 2 ? 'assistant' : 'user', 'text' => 'turn '.$i], range(0, 7));
         $this->postJson('/api/flowie/chat', ['message' => 'Preparation?', 'history' => $history])
-            ->assertOk()->assertExactJson(['reply' => "Rest and hydrate.\nAsk the facility for advice."]);
+            ->assertOk()->assertJsonPath('reply', "Rest and hydrate.\nAsk the facility for advice.")->assertJsonStructure(['reply', 'conversation_id']);
         Http::assertSent(function ($request) {
             $this->assertSame('Bearer test-secret-key', $request->header('Authorization')[0]);
             $this->assertSame('test-model', $request['model']);
@@ -157,5 +157,99 @@ class FlowieChatTest extends TestCase
         }
         $this->postJson('/api/flowie/chat', ['message' => 'Hi'])->assertTooManyRequests();
         Http::assertSentCount(10);
+    }
+
+    public static function simpleMarkupReplies(): array
+    {
+        return [
+            'bold' => ['You currently have **650 Blood Points**.', 'You currently have 650 Blood Points.'],
+            'underscore bold' => ['Mayroon kang __650 Blood Points__ ngayon.', 'Mayroon kang 650 Blood Points ngayon.'],
+            'heading' => ["## Donation Rest Period\nYou can donate again starting January 1, 2027.", "Donation Rest Period\nYou can donate again starting January 1, 2027."],
+            'inline code' => ['Your blood type is `O+`.', 'Your blood type is O+.'],
+            'code fence' => ["```text\nNasa donation rest period ka pa.\n```", 'Nasa donation rest period ka pa.'],
+            'combined' => ["# Blood Points\nYou have **650** points.\nCheck `Points` in LifeFlow.", "Blood Points\nYou have 650 points.\nCheck Points in LifeFlow."],
+        ];
+    }
+
+    #[DataProvider('simpleMarkupReplies')]
+    public function test_simple_markdown_is_cleaned_before_return_and_persistence(string $providerText, string $expected): void
+    {
+        $this->signIn();
+        Http::fake([self::ENDPOINT => Http::response(['choices' => [
+            ['finish_reason' => 'stop', 'message' => ['content' => $providerText]],
+        ]])]);
+
+        $this->postJson('/api/flowie/chat', ['message' => 'Explain my saved status'])
+            ->assertOk()->assertJsonPath('reply', $expected);
+
+        $this->assertDatabaseHas('flowie_messages', ['role' => 'assistant', 'content' => $expected]);
+        $this->assertDatabaseCount('flowie_messages', 2);
+        Http::assertSentCount(1);
+    }
+
+    public static function plainReplies(): array
+    {
+        return [
+            'meaningful punctuation' => ["O+ and AB-; 650 Blood Points, not 6500. January 1, 2027.\n1. Rest.\n2. Hydrate.\n- Ask the facility."],
+            'tagalog punctuation' => ['Puwede kang mag-donate ulit simula January 1, 2027. Makipag-ugnayan sa pasilidad.'],
+            'literal urls' => ['See https://example.test/__guide__?q=**650**&type=O+&show=true#donation or https://example.test/a_b.'],
+            'normal truth statement' => ["That is true. Flowie can't approve donations; ask the facility."],
+            'normal hashtag' => ['LifeFlow #donation helps people.'],
+        ];
+    }
+
+    #[DataProvider('plainReplies')]
+    public function test_cleanup_preserves_normal_text_numbers_punctuation_and_urls(string $reply): void
+    {
+        $this->signIn();
+        Http::fake([self::ENDPOINT => Http::response(['choices' => [
+            ['finish_reason' => 'stop', 'message' => ['content' => $reply]],
+        ]])]);
+
+        $this->postJson('/api/flowie/chat', ['message' => 'General donation help'])
+            ->assertOk()->assertJsonPath('reply', $reply);
+
+        $this->assertDatabaseHas('flowie_messages', ['role' => 'assistant', 'content' => $reply]);
+        Http::assertSentCount(1);
+    }
+
+    public static function unsafeReplies(): array
+    {
+        $cases = [];
+        foreach (['first_name', 'blood_type', 'latest_assessment_result', 'assessment_completed_at', 'assessment_is_current',
+            'is_on_donation_cooldown', 'is_donation_on_cooldown', 'next_eligible_donation_at', 'active_participation_status',
+            'active_participation_opportunity_title', 'completed_donation_count', 'blood_points_balance', 'current_achievement'] as $key) {
+            $cases[$key] = [$key.': true'];
+        }
+
+        return [...$cases,
+            'bare true' => ['true'], 'bare false' => ['FALSE'],
+            'quoted boolean' => ['"true"'],
+            'label boolean' => ['Donation rest period: true'], 'boolean assignment' => ['Rest period = false'],
+            'json boolean' => ['{"rest_period":false}'],
+            'raw block' => ['[LIFEFLOW DONOR CONTEXT]private[/LIFEFLOW DONOR CONTEXT]'],
+            'markdown link' => ['Open [LifeFlow](https://example.test/help).'],
+            'markdown table' => ["| Status | Value |\n| Rest period | Active |"],
+            'unpaired formatting' => ['You have **650 Blood Points.'],
+            'inline fence' => ['```You have 650 Blood Points.```'],
+            'markup only' => ["```text\n```"],
+            'empty' => ['   '], 'overlong' => [str_repeat('a', 4001)],
+        ];
+    }
+
+    #[DataProvider('unsafeReplies')]
+    public function test_internal_fields_booleans_or_unusable_formatting_never_reach_the_reply_or_transcript(string $providerText): void
+    {
+        $this->signIn();
+        Http::fake([self::ENDPOINT => Http::response(['choices' => [
+            ['finish_reason' => 'stop', 'message' => ['content' => $providerText]],
+        ]])]);
+
+        $this->postJson('/api/flowie/chat', ['message' => 'My LifeFlow status?'])->assertStatus(503)
+            ->assertExactJson(['message' => 'Flowie is unavailable right now. Please try again shortly.']);
+
+        $this->assertDatabaseCount('flowie_messages', 1);
+        $this->assertDatabaseHas('flowie_messages', ['role' => 'user', 'content' => 'My LifeFlow status?']);
+        Http::assertSentCount(1);
     }
 }

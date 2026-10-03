@@ -19,27 +19,15 @@ class StoreEligibilityAssessmentRequest extends FormRequest
 
     // ========================================
     // EXACT QUESTIONNAIRE CONTRACT
-    // Allows only answers, with strict JSON numeric types and YES/NO choices.
-    // Sleep's 24-hour limit is input validity, not an eligibility threshold.
+    // Allows only the ten approved answers, with strict YES/NO choices.
     // ========================================
     public function rules(): array
     {
-        $number = function ($attribute, $value, $fail) {
-            if (! is_int($value) && ! is_float($value)) {
-                $fail('The '.$attribute.' must be a JSON number.');
-            }
-        };
-        $rules = [
-            'answers' => ['required', 'array:weight,sleepHours,currentSymptoms,donatedWithinThreeMonths,feelsWell,currentlyPregnant,takingAntibioticsForActiveInfection,stillRecoveringFromProcedure,activeOrRecoveringInfection,weakDizzyOrUnusuallyTired'],
-            'answers.weight' => ['required', $number, 'numeric', 'gt:0'],
-            'answers.sleepHours' => ['required', $number, 'numeric', 'between:0,24'],
-        ];
-        foreach (['currentSymptoms', 'donatedWithinThreeMonths', 'feelsWell', 'takingAntibioticsForActiveInfection', 'stillRecoveringFromProcedure', 'activeOrRecoveringInfection', 'weakDizzyOrUnusuallyTired'] as $key) {
+        $keys = ['weightAtLeast50Kg', 'sleptAtLeastFiveHours', 'eatenProperMeal', 'avoidedAlcoholFor24Hours', 'threeMonthsSinceLastDonation', 'recentFeverInfectionOrIllness', 'unusualBleedingWeaknessOrDizziness', 'recentSurgeryOrMajorProcedure', 'medicationAffectingDonation', 'conditionOrTreatmentRequiringWait'];
+        $rules = ['answers' => ['required', 'array:'.implode(',', $keys)]];
+        foreach ($keys as $key) {
             $rules['answers.'.$key] = ['required', 'string', Rule::in(['YES', 'NO'])];
         }
-
-        // Pregnancy is explicitly answered, never inferred from profile data.
-        $rules['answers.currentlyPregnant'] = ['required', 'string', Rule::in(['YES', 'NO', 'NOT_APPLICABLE'])];
 
         return $rules;
     }

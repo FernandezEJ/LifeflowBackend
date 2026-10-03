@@ -74,7 +74,7 @@ class PasswordResetService
                     || $row->code_hash || now()->greaterThanOrEqualTo($row->expires_at)) {
                     return null;
                 }
-                if (! $user) {
+                if (! $user || ($user->isAdminPanelUser() && $user->isDeactivated())) {
                     DB::table('password_reset_codes')->where('request_id', $requestId)
                         ->update(['used_at' => now(), 'updated_at' => now()]);
 
@@ -168,7 +168,7 @@ class PasswordResetService
             $user = User::whereRaw('LOWER(email) = ?', [$email])->lockForUpdate()->first();
             $row = DB::table('password_reset_codes')->where('email_hash', $this->emailHash($email))
                 ->lockForUpdate()->first();
-            if (! $user || ! $row || $row->user_id !== $user->id || $row->used_at
+            if (! $user || ($user->isAdminPanelUser() && $user->isDeactivated()) || ! $row || $row->user_id !== $user->id || $row->used_at
                 || ! $row->verified_at || ! $row->reset_token_hash || ! $row->reset_token_expires_at
                 || now()->greaterThanOrEqualTo($row->reset_token_expires_at)
                 || ! hash_equals($row->reset_token_hash, hash('sha256', $token))) {

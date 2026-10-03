@@ -25,7 +25,7 @@ class AccountSettingsRequest extends FormRequest
         $current = ['current_password' => ['required', 'string', 'max:128']];
 
         return match ($this->route()->getActionMethod()) {
-            'requestCode' => $current + ['new_email' => ['required', 'string', 'email:rfc', 'max:254']],
+            'requestCode' => ['current_password' => ['sometimes', 'string', 'max:128'], 'new_email' => ['required', 'string', 'email:rfc', 'max:254']],
             'resend' => $token,
             'verify' => $token + ['code' => ['required', 'string', 'regex:/\A[0-9]{6}\z/']],
             'password' => $current + [

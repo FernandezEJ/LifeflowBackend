@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\UserRole;
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -9,6 +10,7 @@ use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
@@ -23,7 +25,39 @@ class User extends Authenticatable
     // Existing fillable fields, hidden fields, and password hashing stay in place.
     // ========================================
     /** @use HasFactory<UserFactory> */
-    use HasApiTokens, HasFactory, Notifiable;
+    use HasApiTokens, HasFactory, Notifiable, SoftDeletes;
+
+    protected $attributes = ['role' => 'donor', 'must_change_password' => false];
+
+    public function isDonor(): bool
+    {
+        return $this->role === UserRole::Donor;
+    }
+
+    public function isAdmin(): bool
+    {
+        return $this->role === UserRole::Admin;
+    }
+
+    public function isSuperAdmin(): bool
+    {
+        return $this->role === UserRole::SuperAdmin;
+    }
+
+    public function isAdminPanelUser(): bool
+    {
+        return $this->isAdmin() || $this->isSuperAdmin();
+    }
+
+    public function isDeactivated(): bool
+    {
+        return $this->deactivated_at !== null;
+    }
+
+    public function auditLogs(): HasMany
+    {
+        return $this->hasMany(AuditLog::class, 'actor_user_id');
+    }
 
     // ========================================
     // DONOR PROFILE RELATIONSHIP
@@ -32,6 +66,12 @@ class User extends Authenticatable
     public function donorProfile(): HasOne
     {
         return $this->hasOne(DonorProfile::class);
+    }
+
+    /** Private Flowie history; ordinary queries exclude soft-deleted conversations. */
+    public function flowieConversations(): HasMany
+    {
+        return $this->hasMany(FlowieConversation::class);
     }
 
     // ========================================
@@ -110,6 +150,11 @@ class User extends Authenticatable
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
+            'role' => UserRole::class,
+            'must_change_password' => 'boolean',
+            'deactivated_at' => 'datetime',
+            'last_login_at' => 'datetime',
+            'deleted_at' => 'datetime',
         ];
     }
 }

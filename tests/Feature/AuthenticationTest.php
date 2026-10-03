@@ -59,12 +59,12 @@ class AuthenticationTest extends TestCase
 
     // ========================================
     // REGISTRATION VALIDATION
-    // Requires valid account details and a matching password of at least 8 characters.
+    // Requires valid account details; legacy password input is validated only when supplied.
     // ========================================
     public function test_registration_rejects_invalid_or_missing_fields(): void
     {
         $this->registerVerified([])->assertUnprocessable()
-            ->assertJsonValidationErrors(['first_name', 'last_name', 'email', 'password', 'password_confirmation']);
+            ->assertJsonValidationErrors(['first_name', 'last_name', 'email', 'mobile_number', 'birth_date', 'gender', 'blood_type']);
         $this->registerVerified(array_replace($this->registrationData(), [
             'email' => 'invalid', 'password' => 'short', 'password_confirmation' => 'short',
         ]))->assertUnprocessable()->assertJsonValidationErrors(['email', 'password']);

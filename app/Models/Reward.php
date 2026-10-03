@@ -5,6 +5,8 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 
 // ========================================
@@ -14,7 +16,14 @@ use Illuminate\Support\Facades\Validator;
 // ========================================
 class Reward extends Model
 {
-    use HasFactory;
+    use HasFactory, SoftDeletes;
+
+    protected $hidden = ['image_path'];
+
+    public function getImageUrlAttribute(?string $value): ?string
+    {
+        return $this->image_path ? url(Storage::disk('public')->url($this->image_path)) : $value;
+    }
 
     protected $guarded = ['id'];
 

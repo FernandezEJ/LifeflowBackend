@@ -17,7 +17,7 @@ class UserVoucher extends Model
 
     protected function casts(): array
     {
-        return ['points_spent' => 'integer', 'activated_at' => 'datetime', 'expires_at' => 'datetime', 'redeemed_at' => 'datetime'];
+        return ['reward_snapshot' => 'array', 'points_spent' => 'integer', 'activated_at' => 'datetime', 'expires_at' => 'datetime', 'redeemed_at' => 'datetime'];
     }
 
     public function user(): BelongsTo
@@ -27,6 +27,6 @@ class UserVoucher extends Model
 
     public function reward(): BelongsTo
     {
-        return $this->belongsTo(Reward::class);
+        return $this->belongsTo(Reward::class)->withTrashed();
     }
 }

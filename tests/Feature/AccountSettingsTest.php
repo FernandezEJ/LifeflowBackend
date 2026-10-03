@@ -72,7 +72,8 @@ class AccountSettingsTest extends TestCase
     {
         User::factory()->create(['email' => 'taken@example.test']);
         foreach ([
-            [[], 'current_password'],
+            [[], 'new_email'],
+            [['new_email' => 'new@example.test'], 'code'],
             [['current_password' => 'wrong', 'new_email' => 'new@example.test'], 'current_password'],
             [['current_password' => 'password123', 'new_email' => 'invalid'], 'new_email'],
             [['current_password' => 'password123', 'new_email' => 'OLD@example.test'], 'new_email'],

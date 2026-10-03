@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Jobs\SendImportantPush;
 use App\Models\DonationOpportunity;
 use App\Models\DonationParticipation;
+use App\Models\DonationRecord;
 use App\Models\Notification;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
@@ -45,8 +46,8 @@ class NotificationService
     }
 
     // ========================================
-    // FUTURE HIGH-PRIORITY ADMIN PUBLISH HOOK
-    // The future trusted publish action calls this service, never a donor.
+    // HIGH-PRIORITY ADMIN PUBLISH HOOK
+    // The trusted announcement publish action calls this service, never a donor.
     // Draft, ordinary, expired and future-dated posts create no notification.
     // ========================================
     public function notifyImportantAnnouncement(DonationOpportunity $opportunity, bool $highPriority = false): void
@@ -54,7 +55,7 @@ class NotificationService
         if (! $highPriority || ! DonationOpportunity::active()->whereKey($opportunity->id)->exists()) {
             return;
         }
-        User::query()->select('id')->chunkById(200, function ($users) use ($opportunity) {
+        User::query()->where('role', 'donor')->select('id')->chunkById(200, function ($users) use ($opportunity) {
             foreach ($users as $user) {
                 $this->createImportant($user->id, 'admin_announcement', 'Important donation announcement',
                     'A new important donation opportunity is available. Open LifeFlow for details.',
@@ -77,6 +78,15 @@ class NotificationService
             ['participation_id' => $participation->id, 'opportunity_id' => $participation->donation_opportunity_id,
                 'event_date' => $date, 'reminder_date' => DonationReminderService::calendarNow()->toDateString()],
             'participation:'.$participation->id.':reminder:'.$date);
+    }
+
+    public function notifyDonationCooldownComplete(User $user, DonationParticipation|DonationRecord $item, array $metadata, string $eventKey): Notification
+    {
+        return $this->createImportant($user->id, 'donation_cooldown_complete', 'You can donate again!',
+            'Your 3-month donation rest period is complete. You may now complete a Self-Assessment and join an available donation opportunity.',
+            ['participation_id' => $item instanceof DonationParticipation ? $item->id : $item->donation_participation_id,
+                'last_completed_donation_at' => $metadata['last_completed_donation_at'],
+                'next_eligible_donation_at' => $metadata['next_eligible_donation_at']], $eventKey);
     }
 
     private function createImportant(int $userId, string $type, string $title, string $message, array $data, string $eventKey): Notification

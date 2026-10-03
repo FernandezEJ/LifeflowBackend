@@ -49,12 +49,17 @@ class AccountSettingsService
     }
 
     /** CHANGE EMAIL: separate records, encrypted address, hashed token and worker-generated code. */
-    public function request(User $actor, #[\SensitiveParameter] string $password, string $email): array
+    public function request(User $actor, #[\SensitiveParameter] ?string $password, string $email): array
     {
         $token = bin2hex(random_bytes(32));
         $id = DB::transaction(function () use ($actor, $password, $email, $token): string {
             $user = $this->owner($actor);
-            $this->requirePassword($user, $password);
+            if ($password !== null) {
+                $this->requirePassword($user, $password);
+            } else {
+                // Passwordless donors prove current email ownership once on this same session.
+                app(DonorLoginService::class)->consumeEmailConfirmation($user->withAccessToken($actor->currentAccessToken()));
+            }
             $this->requireEmail($user, $email);
             $old = DB::table('email_changes')->where('user_id', $user->id)->lockForUpdate()->first();
             if ($old && now()->lessThan($old->resend_at)) {

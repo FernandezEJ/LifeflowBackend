@@ -12,7 +12,7 @@ class Notification extends Model
     // Only the trusted service creates these records. Delivery bookkeeping
     // stays private; API readers receive only their own history.
     // ========================================
-    public const TYPES = ['admin_announcement', 'donation_completed', 'donation_rejected', 'donation_needs_revision', 'donation_reminder'];
+    public const TYPES = ['admin_announcement', 'donation_completed', 'donation_rejected', 'donation_needs_revision', 'donation_reminder', 'donation_cooldown_complete'];
 
     protected $guarded = ['id'];
 

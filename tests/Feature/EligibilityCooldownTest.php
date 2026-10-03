@@ -40,7 +40,7 @@ class EligibilityCooldownTest extends TestCase
         $next = $first->json('next_allowed_at');
         $this->travel($seconds)->seconds();
         $blocked = $this->postJson('/api/eligibility-assessments', [
-            'answers' => [...EligibilityEvaluatorTest::answers(), 'currentSymptoms' => 'YES'],
+            'answers' => [...EligibilityEvaluatorTest::answers(), 'recentFeverInfectionOrIllness' => 'YES'],
         ])->assertStatus(409)->assertJsonPath('assessment.id', $first->json('assessment.id'))
             ->assertJsonPath('latest_assessment.id', $first->json('assessment.id'))
             ->assertJsonPath('cooldown_active', true)->assertJsonPath('next_allowed_at', $next)
@@ -71,7 +71,7 @@ class EligibilityCooldownTest extends TestCase
         $this->getJson('/api/eligibility-assessments/latest')->assertOk()
             ->assertJsonPath('cooldown_active', false)->assertJsonPath('remaining_seconds', 0);
         $second = $this->postJson('/api/eligibility-assessments', [
-            'answers' => [...EligibilityEvaluatorTest::answers(), 'currentSymptoms' => 'YES'],
+            'answers' => [...EligibilityEvaluatorTest::answers(), 'recentFeverInfectionOrIllness' => 'YES'],
         ])->assertCreated()->assertJsonPath('assessment.user_id', $user->id)
             ->assertJsonPath('assessment.result', 'not_eligible');
         $this->assertNotSame($first->json('assessment.id'), $second->json('assessment.id'));

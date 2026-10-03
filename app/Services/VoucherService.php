@@ -46,6 +46,8 @@ class VoucherService
     {
         $voucher->loadMissing('reward');
         $data = $voucher->toArray();
+        $data['reward'] = [...($data['reward'] ?? []), ...($voucher->reward_snapshot ?? [])];
+        unset($data['reward_snapshot']);
         $data['qr_token'] = $voucher->status === 'active' && $voucher->expires_at?->isFuture() ? $voucher->voucher_token : null;
 
         return $data;

@@ -4,31 +4,23 @@ namespace App\Services;
 
 class EligibilityEvaluator
 {
-    // ========================================
-    // BINARY PRE-SCREENING RESULT
-    // Only these self-reported project factors determine a new result.
-    // Every triggered reason is retained; facility screening remains final.
-    // ========================================
+    /** Evaluate only the approved self-reported answers; facility screening remains final. */
     public function evaluate(array $answers): array
     {
         $reasons = [];
-        if ($answers['weight'] < 50) {
-            $reasons[] = 'Your reported weight is below the LifeFlow pre-screening minimum of 50 kg.';
-        }
-        if ($answers['sleepHours'] < 5) {
-            $reasons[] = 'You reported less than 5 hours of sleep last night.';
-        }
         foreach ([
-            'currentSymptoms' => ['YES', 'You reported current fever, cough, colds, sore throat, or feeling unwell.'],
-            'donatedWithinThreeMonths' => ['YES', 'You reported donating blood within the last 3 months.'],
-            'feelsWell' => ['NO', 'You reported not feeling well enough to donate today.'],
-            'currentlyPregnant' => ['YES', 'You reported that you are currently pregnant.'],
-            'takingAntibioticsForActiveInfection' => ['YES', 'You reported currently taking antibiotics for an active infection.'],
-            'stillRecoveringFromProcedure' => ['YES', 'You reported still recovering from surgery, a medical procedure, or hospitalization.'],
-            'activeOrRecoveringInfection' => ['YES', 'You reported an active infection or that you are still recovering from one.'],
-            'weakDizzyOrUnusuallyTired' => ['YES', 'You reported feeling weak, dizzy, unusually tired, or physically unwell today.'],
-        ] as $key => [$trigger, $reason]) {
-            if ($answers[$key] === $trigger) {
+            'weightAtLeast50Kg' => ['YES', 'Your reported weight does not meet the 50 kg pre-screening minimum.'],
+            'sleptAtLeastFiveHours' => ['YES', 'You reported less than 5 hours of sleep before your planned donation.'],
+            'eatenProperMeal' => ['YES', 'You reported not eating a proper meal before your planned donation.'],
+            'avoidedAlcoholFor24Hours' => ['YES', 'You reported drinking alcohol within the last 24 hours.'],
+            'threeMonthsSinceLastDonation' => ['YES', 'You reported that 3 months have not passed since your last completed blood donation.'],
+            'recentFeverInfectionOrIllness' => ['NO', 'You reported recent fever, infection, or illness.'],
+            'unusualBleedingWeaknessOrDizziness' => ['NO', 'You reported recent unusual bleeding, severe weakness, or dizziness.'],
+            'recentSurgeryOrMajorProcedure' => ['NO', 'You reported recent surgery or a major medical or dental procedure.'],
+            'medicationAffectingDonation' => ['NO', 'You reported taking medication that may affect blood donation.'],
+            'conditionOrTreatmentRequiringWait' => ['NO', 'You reported a recent condition or treatment for which a donation facility advised waiting.'],
+        ] as $key => [$passingAnswer, $reason]) {
+            if ($answers[$key] !== $passingAnswer) {
                 $reasons[] = $reason;
             }
         }
