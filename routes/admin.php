@@ -3,9 +3,12 @@
 use App\Http\Controllers\Admin\AdminAccountController;
 use App\Http\Controllers\Admin\AdminManagementController;
 use App\Http\Controllers\Admin\AnnouncementController;
+use App\Http\Controllers\Admin\AuditLogController;
 use App\Http\Controllers\Admin\Auth\AdminAuthController;
 use App\Http\Controllers\Admin\DashboardController;
+use App\Http\Controllers\Admin\DonorController;
 use App\Http\Controllers\Admin\RewardController;
+use App\Http\Controllers\Admin\SystemReportController;
 use App\Http\Controllers\Admin\VerificationController;
 use Illuminate\Support\Facades\Route;
 
@@ -18,6 +21,7 @@ Route::middleware(['auth:sanctum', 'admin.panel'])->group(function (): void {
 
     Route::middleware('admin.password-changed')->group(function (): void {
         Route::get('/dashboard', DashboardController::class);
+        Route::get('/donors', [DonorController::class, 'index']);
         Route::get('/rewards/analytics', [RewardController::class, 'analytics']);
         Route::get('/rewards/redemptions', [RewardController::class, 'redemptions']);
         Route::get('/rewards', [RewardController::class, 'index']);
@@ -41,6 +45,8 @@ Route::middleware(['auth:sanctum', 'admin.panel'])->group(function (): void {
         Route::delete('/announcements/{announcement}', [AnnouncementController::class, 'destroy'])->whereNumber('announcement');
         Route::post('/announcements/{announcement}/restore', [AnnouncementController::class, 'restore'])->whereNumber('announcement');
         Route::middleware('admin.panel:super_admin')->group(function (): void {
+            Route::get('/system-reports', SystemReportController::class);
+            Route::get('/audit-logs', [AuditLogController::class, 'index']);
             Route::get('/admins', [AdminManagementController::class, 'index']);
             Route::post('/admins', [AdminAccountController::class, 'store']);
             Route::put('/admins/{admin}', [AdminManagementController::class, 'update'])->whereNumber('admin');

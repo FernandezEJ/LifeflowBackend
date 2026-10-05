@@ -27,6 +27,9 @@ class RewardManagementService
         if (isset($filters['amount'])) {
             $query->where('voucher_value', $filters['amount']);
         }
+        if (isset($filters['category']) && $filters['category'] !== 'all') {
+            $query->where('category', $filters['category']);
+        }
         $status = $filters['status'] ?? 'all';
         if ($status === 'deleted') {
             $query->onlyTrashed();
@@ -54,7 +57,7 @@ class RewardManagementService
                 abort_if($id !== null && $reward->stock_quantity !== (int) $data['expected_stock'], 409,
                     'Stock changed. Reload the reward before saving again.');
                 $wasActive = $reward->active;
-                $reward->fill(['name' => $data['name'], 'amount_mode' => $data['amount_mode'],
+                $reward->fill(['name' => $data['name'], 'category' => $data['category'], 'amount_mode' => $data['amount_mode'] ?? 'custom',
                     'voucher_value' => $data['voucher_value'], 'points_cost' => $data['points_cost'],
                     'stock_quantity' => $data['stock_quantity'], 'active' => $data['status'] === 'active']);
                 if (isset($data['image'])) {

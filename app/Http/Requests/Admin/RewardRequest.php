@@ -23,8 +23,9 @@ class RewardRequest extends FormRequest
     {
         return [
             'name' => ['required', 'string', 'max:255'],
-            'amount_mode' => ['required', 'in:fixed,custom'],
-            'voucher_value' => ['required', 'numeric', 'decimal:0,2', 'min:0.01', 'max:100000', Rule::when($this->input('amount_mode') === 'fixed', Rule::in(range(100, 1000, 100)))],
+            'category' => ['required', 'in:grocery,medicine,fitness,other'],
+            'amount_mode' => ['sometimes', 'in:fixed,custom'],
+            'voucher_value' => ['required', 'numeric', 'decimal:0,2', 'min:0.01', 'max:100000'],
             'points_cost' => ['required', 'integer', 'min:1', 'max:2147483647'],
             'stock_quantity' => ['required', 'integer', 'min:0', 'max:2147483647'],
             'expected_stock' => [Rule::requiredIf($this->route('reward') !== null), 'integer', 'min:0', 'max:2147483647'],

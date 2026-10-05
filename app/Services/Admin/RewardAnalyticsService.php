@@ -24,12 +24,13 @@ class RewardAnalyticsService
     {
         return $query->select(['vouchers.id', 'vouchers.reward_id', 'vouchers.reward_snapshot', 'vouchers.status',
             'vouchers.expires_at', 'ledger.created_at', 'ledger.amount', 'users.name as donor',
-            'rewards.name as reward_name', 'rewards.voucher_value'])->orderByDesc('vouchers.id')->get()->map(function ($row): array {
+            'rewards.name as reward_name', 'rewards.voucher_value', 'rewards.category'])->orderByDesc('vouchers.id')->get()->map(function ($row): array {
                 $snapshot = json_decode($row->reward_snapshot ?? '{}', true, 512, JSON_THROW_ON_ERROR);
                 $date = Carbon::parse($row->created_at, 'UTC')->timezone(config('app.calendar_timezone'));
 
                 return ['id' => $row->id, 'reward_id' => $row->reward_id, 'donor' => $row->donor ?? 'Unavailable donor',
                     'reward' => $snapshot['name'] ?? $row->reward_name, 'voucherValue' => (float) ($snapshot['voucher_value'] ?? $row->voucher_value),
+                    'category' => $row->category ?? 'grocery',
                     'pointsUsed' => -(int) $row->amount, 'created_at' => $date->toISOString(), 'redeemedDate' => $date->toDateString(),
                     'status' => $row->status === 'active' && $row->expires_at && Carbon::parse($row->expires_at)->lte(now()) ? 'redeemed' : $row->status];
             });
@@ -41,6 +42,7 @@ class RewardAnalyticsService
             $search = mb_strtolower(trim($filters['search'] ?? ''));
 
             return ($search === '' || str_contains(mb_strtolower($row['donor'].' '.$row['reward']), $search))
+                && (($filters['category'] ?? 'all') === 'all' || $row['category'] === $filters['category'])
                 && (! isset($filters['amount']) || $row['voucherValue'] === (float) $filters['amount'])
                 && (! isset($filters['month']) || (int) substr($row['redeemedDate'], 5, 2) === (int) $filters['month'])
                 && (! isset($filters['year']) || (int) substr($row['redeemedDate'], 0, 4) === (int) $filters['year'])
@@ -58,7 +60,7 @@ class RewardAnalyticsService
         $end = $month ? $start->copy()->addMonth() : $start->copy()->addYear();
         $rows = $this->rows($this->purchases()->where('ledger.created_at', '>=', $start->copy()->utc())->where('ledger.created_at', '<', $end->copy()->utc()));
         $trend = [];
-        // Existing specific-month UI shows that month's aggregate bar, not daily/weekly bins.
+        // Optional monthly API requests retain their aggregate bar for compatibility.
         foreach ($month ? [$month] : range(1, 12) as $number) {
             $period = sprintf('%04d-%02d', $year, $number);
             $trend[] = ['period' => $period, 'redemptions' => $rows->filter(fn (array $row): bool => str_starts_with($row['redeemedDate'], $period))->count()];
