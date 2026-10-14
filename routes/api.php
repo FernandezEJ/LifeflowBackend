@@ -111,7 +111,7 @@ Route::middleware('auth:sanctum')->group(function () {
 // MOBILE POINTS, REWARDS AND OWNED VOUCHERS
 // Read/spend/activate only: no donor award, inventory editing or admin routes.
 // ========================================
-Route::middleware('auth:sanctum')->group(function () {
+Route::middleware(['auth:sanctum', EnsureDonorUser::class.':Rewards'])->group(function () {
     $controller = RewardsController::class;
     Route::get('/points/summary', [$controller, 'summary']);
     Route::get('/points/transactions', [$controller, 'transactions']);

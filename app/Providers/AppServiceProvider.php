@@ -48,6 +48,12 @@ class AppServiceProvider extends ServiceProvider
         ]);
         RateLimiter::for('registration-verify', fn (Request $request) => Limit::perMinute(15)->by('registration-verify:'.$request->ip()));
 
+        // Verify/confirm share limits: neither alternating endpoints nor changing tokens bypasses them.
+        RateLimiter::for('reward-claims', fn (Request $request) => [
+            Limit::perMinute(20)->by('reward-claims-staff:'.$request->user()->id),
+            Limit::perMinute(60)->by('reward-claims-ip:'.$request->ip()),
+        ]);
+
         foreach (['request' => 5, 'verify' => 15, 'finish' => 10] as $step => $attempts) {
             RateLimiter::for('password-reset-'.$step, fn (Request $request) => Limit::perMinute($attempts)->by($step.':'.$request->ip()));
         }

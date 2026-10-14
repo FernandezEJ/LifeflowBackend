@@ -270,8 +270,8 @@ class PointsRewardsTest extends TestCase
     }
 
     // ========================================
-    // OWNERSHIP, OPAQUE QR AND AUTHORITATIVE TIME
-    // Advance server time without any mobile countdown, then read the voucher.
+    // OWNERSHIP AND NON-EXPIRING CLAIM CODES
+    // Advance server time without any countdown or automatic redemption.
     // ========================================
     public function test_voucher_ownership_filters_and_token_privacy(): void
     {
@@ -279,7 +279,8 @@ class PointsRewardsTest extends TestCase
         $this->complete($owner);
         $this->complete($owner);
         $reward = Reward::factory()->create();
-        $id = $this->buy($reward)->assertOk()->assertJsonPath('voucher.qr_token', null)->assertJsonMissingPath('voucher.voucher_token')->json('voucher.id');
+        $id = $this->buy($reward)->assertOk()->assertJsonPath('voucher.claim_status', 'available')->assertJsonPath('voucher.claim_code', null)
+            ->assertJsonMissingPath('voucher.qr_token')->assertJsonMissingPath('voucher.voucher_token')->json('voucher.id');
         $this->buy($reward)->assertOk();
         $tokens = UserVoucher::pluck('voucher_token')->all();
         $this->assertNotSame($tokens[0], $tokens[1]);
@@ -293,35 +294,37 @@ class PointsRewardsTest extends TestCase
         $this->getJson('/api/vouchers')->assertJsonCount(0, 'data');
     }
 
-    public function test_activation_cannot_restart_or_accept_client_deadlines_and_reconciles_at_exact_deadline(): void
+    public function test_activation_reuses_code_rejects_client_deadlines_and_never_auto_redeems(): void
     {
         $this->complete($this->signIn());
         $id = $this->buy(Reward::factory()->create())->json('voucher.id');
         $route = '/api/vouchers/'.$id;
         $this->postJson($route.'/activate', ['expires_at' => now()->addYear()->toISOString()])->assertUnprocessable();
         $first = $this->postJson($route.'/activate')->assertOk()->assertJsonPath('voucher.status', 'active')->json('voucher');
-        $this->assertSame(now()->startOfSecond()->addMinutes(5)->toISOString(), $first['expires_at']);
-        $this->assertSame(UserVoucher::findOrFail($id)->voucher_token, $first['qr_token']);
+        $this->assertNull($first['expires_at']);
+        $this->assertSame('pending_claim', $first['claim_status']);
+        $this->assertMatchesRegularExpression('/^LFW-[A-Z0-9]{6}$/', $first['claim_code']);
         $this->travel(299)->seconds();
-        $this->postJson($route.'/activate')->assertOk()->assertJsonPath('voucher.expires_at', $first['expires_at']);
+        $this->postJson($route.'/activate')->assertOk()->assertJsonPath('voucher.claim_code', $first['claim_code'])
+            ->assertJsonPath('voucher.activated_at', $first['activated_at'])->assertJsonPath('voucher.expires_at', null);
         $this->getJson($route)->assertJsonPath('voucher.status', 'active');
         $this->travel(1)->seconds();
-        $this->getJson($route)->assertOk()->assertJsonPath('voucher.status', 'redeemed')->assertJsonPath('voucher.qr_token', null)
-            ->assertJsonPath('voucher.redeemed_at', $first['expires_at']);
-        $this->postJson($route.'/activate')->assertJsonPath('voucher.status', 'redeemed')->assertJsonPath('voucher.expires_at', $first['expires_at']);
-        $this->getJson('/api/vouchers?status=active')->assertJsonCount(0, 'data');
-        $this->getJson('/api/vouchers?status=redeemed')->assertJsonCount(1, 'data');
+        $this->getJson($route)->assertOk()->assertJsonPath('voucher.status', 'active')->assertJsonPath('voucher.claim_code', $first['claim_code'])
+            ->assertJsonPath('voucher.redeemed_at', null);
+        $this->postJson($route.'/activate')->assertJsonPath('voucher.status', 'active')->assertJsonPath('voucher.expires_at', null);
+        $this->getJson('/api/vouchers?status=active')->assertJsonCount(1, 'data');
+        $this->getJson('/api/vouchers?status=redeemed')->assertJsonCount(0, 'data');
         $this->getJson('/api/vouchers')->assertJsonCount(1, 'data');
     }
 
-    public function test_list_reconciles_after_app_was_closed_and_expired_cannot_activate(): void
+    public function test_list_keeps_pending_claim_after_app_was_closed_and_legacy_expired_cannot_activate(): void
     {
         $this->complete($this->signIn());
         $id = $this->buy(Reward::factory()->create())->json('voucher.id');
         $this->postJson('/api/vouchers/'.$id.'/activate')->assertOk();
         $this->travel(1)->days();
-        $this->getJson('/api/vouchers')->assertJsonPath('data.0.status', 'redeemed');
-        $this->assertNotNull(UserVoucher::findOrFail($id)->redeemed_at);
+        $this->getJson('/api/vouchers')->assertJsonPath('data.0.status', 'active')->assertJsonPath('data.0.claim_status', 'pending_claim');
+        $this->assertNull(UserVoucher::findOrFail($id)->redeemed_at);
         UserVoucher::whereKey($id)->update(['status' => 'expired']);
         $this->postJson('/api/vouchers/'.$id.'/activate')->assertUnprocessable();
     }

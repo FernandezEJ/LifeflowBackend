@@ -8,10 +8,10 @@ use Symfony\Component\HttpFoundation\Response;
 
 class EnsureDonorUser
 {
-    public function handle(Request $request, Closure $next): Response
+    public function handle(Request $request, Closure $next, string $feature = 'Flowie'): Response
     {
         // Sanctum establishes identity; donor routes never grant staff access to private chats.
-        abort_unless($request->user()?->isDonor() && ! $request->user()->isDeactivated(), 403, 'Only active donors may use Flowie.');
+        abort_unless($request->user()?->isDonor() && ! $request->user()->isDeactivated(), 403, 'Only active donors may use '.$feature.'.');
 
         return $next($request);
     }

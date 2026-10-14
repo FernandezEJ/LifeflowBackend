@@ -7,6 +7,7 @@ use App\Http\Controllers\Admin\AuditLogController;
 use App\Http\Controllers\Admin\Auth\AdminAuthController;
 use App\Http\Controllers\Admin\DashboardController;
 use App\Http\Controllers\Admin\DonorController;
+use App\Http\Controllers\Admin\RewardClaimController;
 use App\Http\Controllers\Admin\RewardController;
 use App\Http\Controllers\Admin\SystemReportController;
 use App\Http\Controllers\Admin\VerificationController;
@@ -24,6 +25,8 @@ Route::middleware(['auth:sanctum', 'admin.panel'])->group(function (): void {
         Route::get('/donors', [DonorController::class, 'index']);
         Route::get('/rewards/analytics', [RewardController::class, 'analytics']);
         Route::get('/rewards/redemptions', [RewardController::class, 'redemptions']);
+        Route::post('/rewards/claims/verify', [RewardClaimController::class, 'verify'])->middleware('throttle:reward-claims');
+        Route::post('/rewards/claims/confirm', [RewardClaimController::class, 'confirm'])->middleware('throttle:reward-claims');
         Route::get('/rewards', [RewardController::class, 'index']);
         Route::post('/rewards', [RewardController::class, 'store']);
         Route::get('/rewards/{reward}', [RewardController::class, 'show'])->whereNumber('reward');

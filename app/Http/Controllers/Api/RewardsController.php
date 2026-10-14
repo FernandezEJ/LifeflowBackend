@@ -54,36 +54,33 @@ class RewardsController extends Controller
         $this->only($request, ['request_key']);
         $data = $request->validate(['request_key' => ['required', 'uuid']]);
         $voucher = $redemption->redeem($request->user()->id, $id, $data['request_key']);
-        $vouchers->reconcile($request->user()->id);
 
-        return response()->json(['voucher' => $vouchers->payload($voucher->refresh()),
+        return response()->json(['voucher' => $vouchers->payload($voucher->refresh(), $request->user()->id),
             'summary' => $points->summary($request->user()->id), 'reward' => Reward::withTrashed()->findOrFail($id),
-            'server_time' => now()->toISOString()]);
+            'server_time' => now()->toISOString()])->header('Cache-Control', 'private, no-store');
     }
 
     // ========================================
-    // OWNED HISTORY AND FIVE-MINUTE ACTIVATION
-    // Reads reconcile elapsed windows even when the app has been closed.
-    // Empty activation bodies prevent a client from choosing a deadline.
+    // OWNED HISTORY AND ONE-TIME CLAIM CODE ACTIVATION
+    // Reads never close claims; only a separate authorized staff confirmation does.
+    // Empty activation bodies prevent a client from choosing credentials or a deadline.
     // ========================================
     public function vouchers(Request $request, VoucherService $service): JsonResponse
     {
         $request->validate(['status' => ['sometimes', 'in:available,active,redeemed,expired'], 'page' => ['sometimes', 'integer', 'min:1']]);
-        $service->reconcile($request->user()->id);
         $page = UserVoucher::where('user_id', $request->user()->id)->with('reward')
             ->when($request->filled('status'), fn ($q) => $q->where('status', $request->string('status')->toString()))
             ->orderByDesc('id')->paginate(20);
-        $page->setCollection($page->getCollection()->map(fn ($v) => $service->payload($v)));
+        $page->setCollection($page->getCollection()->map(fn ($v) => $service->payload($v, $request->user()->id)));
 
-        return response()->json([...$page->toArray(), 'server_time' => now()->toISOString()]);
+        return response()->json([...$page->toArray(), 'server_time' => now()->toISOString()])->header('Cache-Control', 'private, no-store');
     }
 
     public function voucher(Request $request, int $id, VoucherService $service): JsonResponse
     {
-        $service->reconcile($request->user()->id);
         $voucher = UserVoucher::where('user_id', $request->user()->id)->findOrFail($id);
 
-        return response()->json(['voucher' => $service->payload($voucher), 'server_time' => now()->toISOString()]);
+        return response()->json(['voucher' => $service->payload($voucher, $request->user()->id), 'server_time' => now()->toISOString()])->header('Cache-Control', 'private, no-store');
     }
 
     public function activate(Request $request, int $id, VoucherService $service): JsonResponse
@@ -91,7 +88,7 @@ class RewardsController extends Controller
         $this->only($request, []);
         $voucher = $service->activate($request->user()->id, $id);
 
-        return response()->json(['voucher' => $service->payload($voucher), 'server_time' => now()->toISOString()]);
+        return response()->json(['voucher' => $service->payload($voucher, $request->user()->id), 'server_time' => now()->toISOString()])->header('Cache-Control', 'private, no-store');
     }
 
     private function only(Request $request, array $allowed): void

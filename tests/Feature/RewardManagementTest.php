@@ -139,7 +139,8 @@ class RewardManagementTest extends TestCase
             ->assertJsonPath('voucher.reward.voucher_value', '100.00')->assertJsonPath('voucher.points_spent', 100);
         $this->postJson('/api/vouchers/'.$voucherId.'/activate')->assertOk()->assertJsonPath('voucher.status', 'active');
         $this->travel(5)->minutes();
-        $this->getJson('/api/vouchers/'.$voucherId)->assertOk()->assertJsonPath('voucher.status', 'redeemed')->assertJsonPath('voucher.qr_token', null);
+        $this->getJson('/api/vouchers/'.$voucherId)->assertOk()->assertJsonPath('voucher.status', 'active')
+            ->assertJsonPath('voucher.claim_status', 'pending_claim')->assertJsonPath('voucher.expires_at', null)->assertJsonMissingPath('voucher.qr_token');
         $this->assertDatabaseCount('user_vouchers', 1);
         $this->assertDatabaseCount('point_transactions', 2);
         $this->assertDatabaseHas('rewards', ['id' => $id, 'stock_quantity' => 4]);

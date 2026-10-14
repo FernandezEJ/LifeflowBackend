@@ -20,7 +20,8 @@ class RewardRedemptionService
     public function redeem(int $userId, int $rewardId, string $requestKey): UserVoucher
     {
         return DB::transaction(function () use ($userId, $rewardId, $requestKey) {
-            User::whereKey($userId)->lockForUpdate()->firstOrFail();
+            $owner = User::whereKey($userId)->lockForUpdate()->firstOrFail();
+            abort_unless($owner->isDonor() && ! $owner->isDeactivated(), 403, 'Only active donors may redeem rewards.');
             $existing = UserVoucher::where('user_id', $userId)->where('redemption_key', $requestKey)->lockForUpdate()->first();
             if ($existing) {
                 if ($existing->reward_id !== $rewardId) {
@@ -39,7 +40,7 @@ class RewardRedemptionService
             $voucher = new UserVoucher;
             $voucher->forceFill(['user_id' => $userId, 'reward_id' => $rewardId, 'points_spent' => $reward->points_cost,
                 'status' => 'available', 'voucher_token' => Str::random(64), 'redemption_key' => $requestKey,
-                'reward_snapshot' => ['id' => $reward->id, 'name' => $reward->name, 'description' => $reward->description,
+                'reward_snapshot' => ['id' => $reward->id, 'name' => $reward->name, 'description' => $reward->description, 'category' => $reward->category,
                     'voucher_value' => $reward->voucher_value, 'points_cost' => $reward->points_cost, 'image_url' => $reward->image_url]])->save();
             app(PointsService::class)->deduct($voucher);
             $reward->stock_quantity--;

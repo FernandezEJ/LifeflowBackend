@@ -23,8 +23,10 @@ class RewardAnalyticsService
     private function rows(Builder $query): Collection
     {
         return $query->select(['vouchers.id', 'vouchers.reward_id', 'vouchers.reward_snapshot', 'vouchers.status',
-            'vouchers.expires_at', 'ledger.created_at', 'ledger.amount', 'users.name as donor',
-            'rewards.name as reward_name', 'rewards.voucher_value', 'rewards.category'])->orderByDesc('vouchers.id')->get()->map(function ($row): array {
+            'vouchers.claimed_at', 'ledger.created_at', 'ledger.amount', 'users.name as donor',
+            'rewards.name as reward_name', 'rewards.voucher_value', 'rewards.category'])
+            ->selectRaw('(vouchers.claim_code_digest IS NOT NULL) as has_claim_code')
+            ->orderByDesc('vouchers.id')->get()->map(function ($row): array {
                 $snapshot = json_decode($row->reward_snapshot ?? '{}', true, 512, JSON_THROW_ON_ERROR);
                 $date = Carbon::parse($row->created_at, 'UTC')->timezone(config('app.calendar_timezone'));
 
@@ -32,7 +34,9 @@ class RewardAnalyticsService
                     'reward' => $snapshot['name'] ?? $row->reward_name, 'voucherValue' => (float) ($snapshot['voucher_value'] ?? $row->voucher_value),
                     'category' => $row->category ?? 'grocery',
                     'pointsUsed' => -(int) $row->amount, 'created_at' => $date->toISOString(), 'redeemedDate' => $date->toDateString(),
-                    'status' => $row->status === 'active' && $row->expires_at && Carbon::parse($row->expires_at)->lte(now()) ? 'redeemed' : $row->status];
+                    'status' => $row->status,
+                    'claim_status' => $row->claimed_at !== null ? 'claimed' : ($row->status === 'active' && $row->has_claim_code ? 'pending_claim' : ($row->status === 'available' && ! $row->has_claim_code ? 'available' : 'legacy')),
+                    'claimed_at' => $row->claimed_at ? Carbon::parse($row->claimed_at, 'UTC')->toISOString() : null];
             });
     }
 

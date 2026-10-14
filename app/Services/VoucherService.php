@@ -2,53 +2,78 @@
 
 namespace App\Services;
 
+use App\Models\User;
 use App\Models\UserVoucher;
+use Illuminate\Database\QueryException;
+use Illuminate\Database\UniqueConstraintViolationException;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class VoucherService
 {
-    // ========================================
-    // SERVER DEADLINE RECONCILIATION
-    // Five elapsed minutes mean redeemed in this capstone, never proof of a scan.
-    // Conditional updates are safe across simultaneous list/detail/activate calls.
-    // ========================================
-    public function reconcile(int $userId, ?int $id = null): void
-    {
-        UserVoucher::where('user_id', $userId)->when($id !== null, fn ($q) => $q->whereKey($id))->where('status', 'active')->where('expires_at', '<=', now())
-            ->update(['status' => 'redeemed', 'redeemed_at' => DB::raw('expires_at'), 'updated_at' => now()]);
-    }
+    public function __construct(private readonly RewardClaimCode $codes) {}
 
+    /** Issue once under owner/voucher locks. No spending, inventory changes or timer reconciliation. */
     public function activate(int $userId, int $id): UserVoucher
     {
-        return DB::transaction(function () use ($userId, $id) {
-            $voucher = UserVoucher::where('user_id', $userId)->whereKey($id)->lockForUpdate()->firstOrFail();
-            $this->reconcile($userId, $id);
-            $voucher->refresh();
-            if ($voucher->status === 'active' || $voucher->status === 'redeemed') {
-                return $voucher;
-            }
-            if ($voucher->status !== 'available') {
-                throw ValidationException::withMessages(['voucher' => 'This voucher cannot be activated.']);
-            }
-            $start = now()->startOfSecond();
-            $voucher->forceFill(['status' => 'active', 'activated_at' => $start, 'expires_at' => $start->copy()->addMinutes(5)])->save();
+        try {
+            return DB::transaction(function () use ($userId, $id): UserVoucher {
+                $owner = User::whereKey($userId)->lockForUpdate()->firstOrFail();
+                abort_unless($owner->isDonor() && ! $owner->isDeactivated(), 403, 'Only active donors may use Rewards.');
+                $voucher = UserVoucher::where('user_id', $userId)->whereKey($id)->lockForUpdate()->firstOrFail();
+                if ($voucher->claimed_at !== null || $voucher->status === 'redeemed') {
+                    return $voucher;
+                }
+                if (! in_array($voucher->status, ['available', 'active'], true)) {
+                    throw ValidationException::withMessages(['voucher' => 'This voucher cannot be activated.']);
+                }
+                if ($voucher->claim_code_digest !== null) {
+                    return $voucher;
+                }
+                for ($attempt = 0; $attempt < 10; $attempt++) {
+                    $code = $this->codes->generate();
+                    $digests = $this->codes->digests($code);
+                    if (UserVoucher::whereIn('claim_code_digest', $digests)->exists()) {
+                        continue;
+                    }
+                    try {
+                        // A savepoint keeps a unique-index collision from aborting the outer transaction.
+                        DB::transaction(function () use ($voucher, $code, $digests): void {
+                            $voucher->forceFill(['status' => 'active', 'activated_at' => now()->startOfSecond(),
+                                'expires_at' => null, 'claim_code_encrypted' => Crypt::encryptString($code),
+                                'claim_code_digest' => $digests[0]])->save();
+                        });
 
-            return $voucher;
-        }, 3);
+                        return $voucher;
+                    } catch (UniqueConstraintViolationException) {
+                        // Never log the failed query/bindings or include the digest/code in an exception.
+                        $voucher->refresh();
+                    }
+                }
+                abort(503, 'A claim code could not be issued. Please try again shortly.');
+            }, 3);
+        } catch (QueryException) {
+            // SQL bindings may contain claim secrets; do not report or chain the database exception.
+            abort(503, 'Claim activation is unavailable. Please try again shortly.');
+        }
     }
 
     // ========================================
-    // SAFE MOBILE PRESENTATION
-    // Opaque token is returned only while active; ownership is checked by callers.
+    // OWNER-ONLY PRESENTATION
+    // Claimed and legacy vouchers never reveal a usable credential.
     // ========================================
-    public function payload(UserVoucher $voucher): array
+    public function payload(UserVoucher $voucher, int $ownerId): array
     {
+        abort_unless($voucher->user_id === $ownerId, 404);
         $voucher->loadMissing('reward');
         $data = $voucher->toArray();
         $data['reward'] = [...($data['reward'] ?? []), ...($voucher->reward_snapshot ?? [])];
         unset($data['reward_snapshot']);
-        $data['qr_token'] = $voucher->status === 'active' && $voucher->expires_at?->isFuture() ? $voucher->voucher_token : null;
+        $data['claim_status'] = $voucher->claimStatus();
+        $data['is_legacy'] = $data['claim_status'] === 'legacy';
+        $data['legacy_status'] = $data['is_legacy'] ? $voucher->status : null;
+        $data['claim_code'] = $data['claim_status'] === 'pending_claim' ? Crypt::decryptString($voucher->claim_code_encrypted) : null;
 
         return $data;
     }

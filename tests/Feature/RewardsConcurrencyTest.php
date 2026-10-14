@@ -8,6 +8,9 @@ use App\Models\PointTransaction;
 use App\Models\Reward;
 use App\Models\User;
 use App\Models\UserVoucher;
+use App\Services\RewardRedemptionService;
+use App\Services\VoucherService;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
@@ -84,18 +87,35 @@ class RewardsConcurrencyTest extends TestCase
             if ($argv[5] === 'complete') {
                 $row = \App\Models\DonationParticipation::findOrFail((int) $argv[3]);
                 $row->forceFill(['status' => 'completed'])->save();
+            } elseif ($argv[5] === 'activate') {
+                $voucher = app(\App\Services\VoucherService::class)->activate((int) $argv[2], (int) $argv[3]);
+                echo hash('sha256', \Illuminate\Support\Facades\Crypt::decryptString($voucher->claim_code_encrypted));
+                exit;
+            } elseif ($argv[5] === 'confirm') {
+                app(\App\Services\Admin\RewardClaimService::class)->confirm(
+                    \App\Models\User::findOrFail((int) $argv[2]), getenv('LIFEFLOW_TEST_CLAIM_CODE'));
             } else {
                 app(\App\Services\RewardRedemptionService::class)->redeem((int) $argv[2], (int) $argv[3], $argv[4]);
             }
             echo 'ok';
         } catch (\Illuminate\Validation\ValidationException $error) {
             echo 'unavailable';
+        } catch (\Symfony\Component\HttpKernel\Exception\HttpException $error) {
+            if ($error->getStatusCode() !== 409) {
+                throw $error;
+            }
+            echo 'conflict';
         }
         PHP;
         $streams = [];
         foreach ($attempts as [$userId, $id, $key]) {
             $stream = new InputStream;
-            $process = new Process([PHP_BINARY, '-r', $code, $this->databaseFile, (string) $userId, (string) $id, $key, $mode], base_path());
+            $process = new Process([PHP_BINARY, '-r', $code, $this->databaseFile, (string) $userId, (string) $id,
+                $mode === 'confirm' ? 'test-claim' : $key, $mode], base_path(), [
+                    'APP_ENV' => 'testing', 'APP_KEY' => config('app.key'), 'DB_CONNECTION' => 'sqlite',
+                    'DB_DATABASE' => $this->databaseFile, 'DB_URL' => '',
+                    'LIFEFLOW_TEST_CLAIM_CODE' => $mode === 'confirm' ? $key : '',
+                ]);
             $process->setInput($stream);
             $process->setTimeout(20);
             $process->start();
@@ -158,5 +178,45 @@ class RewardsConcurrencyTest extends TestCase
         $this->assertSame(['ok', 'ok'], $this->race([[$user->id, $one->id, 'unused'], [$user->id, $two->id, 'unused']], 'complete'));
         $this->assertSame([300, 350], PointTransaction::orderBy('amount')->pluck('amount')->all());
         $this->assertDatabaseCount('notifications', 2);
+    }
+
+    public function test_simultaneous_activations_issue_one_stable_code_without_spending_again(): void
+    {
+        $owner = User::factory()->create();
+        $this->participation($owner, 'completed');
+        $reward = Reward::factory()->create(['stock_quantity' => 1]);
+        $voucher = app(RewardRedemptionService::class)->redeem($owner->id, $reward->id, (string) Str::uuid());
+
+        $results = $this->race([[$owner->id, $voucher->id, 'unused'], [$owner->id, $voucher->id, 'unused']], 'activate');
+
+        $voucher->refresh();
+        $this->assertSame([hash('sha256', Crypt::decryptString($voucher->claim_code_encrypted)),
+            hash('sha256', Crypt::decryptString($voucher->claim_code_encrypted))], $results);
+        $this->assertSame('pending_claim', $voucher->claimStatus());
+        $this->assertNull($voucher->expires_at);
+        $this->assertDatabaseCount('user_vouchers', 1);
+        $this->assertDatabaseCount('point_transactions', 2);
+        $this->assertSame(0, $reward->fresh()->stock_quantity);
+    }
+
+    public function test_simultaneous_staff_confirmations_record_one_physical_claim_and_one_audit(): void
+    {
+        $owner = User::factory()->create();
+        $this->participation($owner, 'completed');
+        $reward = Reward::factory()->create(['stock_quantity' => 1]);
+        $voucher = app(RewardRedemptionService::class)->redeem($owner->id, $reward->id, (string) Str::uuid());
+        $code = Crypt::decryptString(app(VoucherService::class)->activate($owner->id, $voucher->id)->claim_code_encrypted);
+        $staff = User::factory()->create(['role' => 'admin']);
+        $super = User::factory()->create(['role' => 'super_admin']);
+
+        $results = $this->race([[$staff->id, $voucher->id, $code], [$super->id, $voucher->id, $code]], 'confirm');
+
+        sort($results);
+        $this->assertSame(['conflict', 'ok'], $results);
+        $this->assertSame('claimed', $voucher->fresh()->claimStatus());
+        $this->assertContains($voucher->fresh()->claimed_by_user_id, [$staff->id, $super->id]);
+        $this->assertDatabaseCount('audit_logs', 1);
+        $this->assertDatabaseCount('point_transactions', 2);
+        $this->assertSame(0, $reward->fresh()->stock_quantity);
     }
 }
