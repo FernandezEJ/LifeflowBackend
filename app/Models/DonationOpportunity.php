@@ -46,7 +46,7 @@ class DonationOpportunity extends Model
 
     protected function casts(): array
     {
-        return ['event_date' => 'date:Y-m-d', 'published_at' => 'datetime', 'expires_at' => 'datetime', 'points_reward' => 'integer'];
+        return ['event_date' => 'date:Y-m-d', 'published_at' => 'datetime', 'expires_at' => 'datetime', 'points_reward' => 'integer', 'description_document' => 'array'];
     }
 
     // ========================================

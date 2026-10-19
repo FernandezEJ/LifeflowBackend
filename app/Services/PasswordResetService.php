@@ -24,18 +24,18 @@ class PasswordResetService
 
     public const RESEND_SECONDS = 60;
 
-    private function emailHash(string $email): string
+    private function emailHash(string $email, bool $staffOnly = false): string
     {
-        return hash('sha256', $email);
+        return hash('sha256', ($staffOnly ? 'admin-password-reset:' : '').$email);
     }
 
     /**
      * Keep account lookup and SMTP off the public request path. Both known and
      * unknown addresses receive the same response and encrypted queued work.
      */
-    public function requestCode(string $email): void
+    public function requestCode(string $email, bool $staffOnly = false): void
     {
-        $key = $this->emailHash($email);
+        $key = $this->emailHash($email, $staffOnly);
         $requestId = (string) Str::uuid();
         try {
             if (! Cache::add('password-reset-request:'.$key, true, self::RESEND_SECONDS)) {
@@ -50,7 +50,7 @@ class PasswordResetService
                 'created_at' => now(), 'updated_at' => now(),
             ]], ['email_hash']);
 
-            SendPasswordResetCode::dispatch($email, $requestId)
+            SendPasswordResetCode::dispatch($email, $requestId, $staffOnly)
                 ->onConnection('database')->onQueue('password-resets')->afterCommit();
         } catch (Throwable) {
             Log::error('Password reset request could not be queued. Check database, cache and queue configuration.');
@@ -62,19 +62,19 @@ class PasswordResetService
      * Generate the plaintext code only inside the worker, never in queue data.
      * Claim once before sending; retries and old queued requests cannot resend it.
      */
-    public function deliver(string $email, string $requestId): void
+    public function deliver(string $email, string $requestId, bool $staffOnly = false): void
     {
         try {
-            $code = DB::transaction(function () use ($email, $requestId): ?string {
+            $code = DB::transaction(function () use ($email, $requestId, $staffOnly): ?string {
                 $user = User::whereRaw('LOWER(email) = ?', [$email])->lockForUpdate()->first();
-                $row = DB::table('password_reset_codes')->where('email_hash', $this->emailHash($email))
+                $row = DB::table('password_reset_codes')->where('email_hash', $this->emailHash($email, $staffOnly))
                     ->lockForUpdate()->first();
 
                 if (! $row || $row->request_id !== $requestId || $row->used_at
                     || $row->code_hash || now()->greaterThanOrEqualTo($row->expires_at)) {
                     return null;
                 }
-                if (! $user || ($user->isAdminPanelUser() && $user->isDeactivated())) {
+                if (! $user || ($user->isAdminPanelUser() && $user->isDeactivated()) || ($staffOnly && ! $user->isAdminPanelUser())) {
                     DB::table('password_reset_codes')->where('request_id', $requestId)
                         ->update(['used_at' => now(), 'updated_at' => now()]);
 
@@ -128,14 +128,20 @@ class PasswordResetService
     }
 
     /** A locked counter commits even when the submitted code is wrong. */
-    public function verify(string $email, #[\SensitiveParameter] string $code): string
+    public function verify(string $email, #[\SensitiveParameter] string $code, bool $staffOnly = false): string
     {
-        $token = DB::transaction(function () use ($email, $code): ?string {
-            $row = DB::table('password_reset_codes')->where('email_hash', $this->emailHash($email))
+        $token = DB::transaction(function () use ($email, $code, $staffOnly): ?string {
+            $row = DB::table('password_reset_codes')->where('email_hash', $this->emailHash($email, $staffOnly))
                 ->lockForUpdate()->first();
             if (! $row || $row->used_at || $row->verified_at || ! $row->code_hash
                 || $row->attempt_count >= 5 || now()->greaterThanOrEqualTo($row->expires_at)) {
                 return null;
+            }
+            if ($staffOnly) {
+                $user = User::find($row->user_id);
+                if (! $user || ! $user->isAdminPanelUser() || $user->isDeactivated()) {
+                    return null;
+                }
             }
             if (! Hash::check($this->codeSecret($code), $row->code_hash)) {
                 DB::table('password_reset_codes')->where('email_hash', $row->email_hash)->update([
@@ -162,13 +168,13 @@ class PasswordResetService
     }
 
     /** Donor-first locking makes consuming authorization and revoking sessions atomic. */
-    public function reset(string $email, #[\SensitiveParameter] string $token, #[\SensitiveParameter] string $password): void
+    public function reset(string $email, #[\SensitiveParameter] string $token, #[\SensitiveParameter] string $password, bool $staffOnly = false): void
     {
-        $changed = DB::transaction(function () use ($email, $token, $password): bool {
+        $changed = DB::transaction(function () use ($email, $token, $password, $staffOnly): bool {
             $user = User::whereRaw('LOWER(email) = ?', [$email])->lockForUpdate()->first();
-            $row = DB::table('password_reset_codes')->where('email_hash', $this->emailHash($email))
+            $row = DB::table('password_reset_codes')->where('email_hash', $this->emailHash($email, $staffOnly))
                 ->lockForUpdate()->first();
-            if (! $user || ($user->isAdminPanelUser() && $user->isDeactivated()) || ! $row || $row->user_id !== $user->id || $row->used_at
+            if (! $user || ($user->isAdminPanelUser() && $user->isDeactivated()) || ($staffOnly && ! $user->isAdminPanelUser()) || ! $row || $row->user_id !== $user->id || $row->used_at
                 || ! $row->verified_at || ! $row->reset_token_hash || ! $row->reset_token_expires_at
                 || now()->greaterThanOrEqualTo($row->reset_token_expires_at)
                 || ! hash_equals($row->reset_token_hash, hash('sha256', $token))) {
@@ -176,7 +182,7 @@ class PasswordResetService
             }
 
             $user->forceFill(['password' => Hash::make($password), 'remember_token' => Str::random(60)])->save();
-            DB::table('password_reset_codes')->where('email_hash', $row->email_hash)->update([
+            DB::table('password_reset_codes')->whereIn('email_hash', [$this->emailHash($email), $this->emailHash($email, true)])->update([
                 'used_at' => now(), 'code_hash' => null, 'reset_token_hash' => null, 'updated_at' => now(),
             ]);
             $user->tokens()->delete();

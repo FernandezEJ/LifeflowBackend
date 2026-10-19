@@ -23,7 +23,14 @@ class AnnouncementController extends Controller
 
     public function show(int $announcement): JsonResponse
     {
-        return response()->json(['announcement' => $this->service->profile($this->service->find($announcement, true))]);
+        return response()->json(['announcement' => $this->service->detail($announcement)])->header('Cache-Control', 'no-store');
+    }
+
+    public function participants(Request $request, int $announcement): JsonResponse
+    {
+        $request->validate(['page' => ['sometimes', 'integer', 'min:1']]);
+
+        return response()->json($this->service->participants($announcement))->header('Cache-Control', 'no-store');
     }
 
     public function store(SaveAnnouncementRequest $request): JsonResponse

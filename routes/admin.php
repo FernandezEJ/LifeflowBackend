@@ -5,6 +5,7 @@ use App\Http\Controllers\Admin\AdminManagementController;
 use App\Http\Controllers\Admin\AnnouncementController;
 use App\Http\Controllers\Admin\AuditLogController;
 use App\Http\Controllers\Admin\Auth\AdminAuthController;
+use App\Http\Controllers\Admin\Auth\AdminPasswordResetController;
 use App\Http\Controllers\Admin\DashboardController;
 use App\Http\Controllers\Admin\DonorController;
 use App\Http\Controllers\Admin\RewardClaimController;
@@ -14,6 +15,9 @@ use App\Http\Controllers\Admin\VerificationController;
 use Illuminate\Support\Facades\Route;
 
 Route::post('/login', [AdminAuthController::class, 'login'])->middleware('throttle:admin-login');
+Route::post('/forgot-password/request', [AdminPasswordResetController::class, 'requestCode'])->middleware('throttle:password-reset-request');
+Route::post('/forgot-password/verify', [AdminPasswordResetController::class, 'verify'])->middleware('throttle:password-reset-verify');
+Route::post('/forgot-password/reset', [AdminPasswordResetController::class, 'reset'])->middleware('throttle:password-reset-finish');
 
 Route::middleware(['auth:sanctum', 'admin.panel'])->group(function (): void {
     Route::get('/me', [AdminAuthController::class, 'me']);
@@ -42,6 +46,7 @@ Route::middleware(['auth:sanctum', 'admin.panel'])->group(function (): void {
         Route::get('/announcements', [AnnouncementController::class, 'index']);
         Route::post('/announcements', [AnnouncementController::class, 'store']);
         Route::get('/announcements/{announcement}', [AnnouncementController::class, 'show'])->whereNumber('announcement');
+        Route::get('/announcements/{announcement}/participants', [AnnouncementController::class, 'participants'])->whereNumber('announcement');
         Route::put('/announcements/{announcement}', [AnnouncementController::class, 'update'])->whereNumber('announcement');
         Route::post('/announcements/{announcement}/publish', [AnnouncementController::class, 'publish'])->whereNumber('announcement');
         Route::post('/announcements/{announcement}/draft', [AnnouncementController::class, 'draft'])->whereNumber('announcement');

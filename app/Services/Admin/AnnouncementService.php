@@ -4,6 +4,7 @@ namespace App\Services\Admin;
 
 use App\Models\DonationOpportunity;
 use App\Models\User;
+use App\Services\AnnouncementContent;
 use App\Services\NotificationService;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -13,6 +14,33 @@ use Throwable;
 
 class AnnouncementService
 {
+    public function detail(int $id): array
+    {
+        $item = $this->find($id, true);
+        $joined = $item->participations()->where('status', '!=', 'cancelled');
+
+        return [...$this->profile($item),
+            'participants_count' => (clone $joined)->distinct()->count('user_id'),
+            'participants_preview' => User::withTrashed()->select(['id', 'name'])
+                ->whereIn('id', $joined->select('user_id'))->orderBy('id')->limit(3)->get()
+                ->map(fn (User $donor): array => ['id' => $donor->id, 'name' => $donor->name])->all()];
+    }
+
+    /** Staff history includes cancelled attempts; joined count is distinct non-cancelled donors. */
+    public function participants(int $id): array
+    {
+        $item = $this->find($id, true);
+        $page = $item->participations()->with(['user' => fn ($query) => $query->withTrashed()->select(['id', 'name'])])
+            ->orderByDesc('joined_at')->orderByDesc('id')->paginate(20);
+
+        return ['data' => $page->getCollection()->map(fn ($entry): array => [
+            'id' => $entry->id, 'status' => $entry->status,
+            'joined_at' => $entry->joined_at?->toISOString(), 'cancelled_at' => $entry->cancelled_at?->toISOString(),
+            'donor' => ['id' => $entry->user_id, 'name' => $entry->user?->name ?? 'Unavailable donor'],
+        ])->all(), 'meta' => ['current_page' => $page->currentPage(), 'last_page' => $page->lastPage(),
+            'per_page' => $page->perPage(), 'total' => $page->total()]];
+    }
+
     public function profile(DonationOpportunity $item): array
     {
         return [...$item->toArray(), 'status' => $item->managementStatus(),
@@ -79,6 +107,10 @@ class AnnouncementService
                 $item->fill(['title' => $data['title'], 'description' => $data['description'], 'location' => $data['location'],
                     'event_date' => $data['donation_date'],
                     'expires_at' => Carbon::parse($data['expires_at'] ?? $data['donation_date'], config('app.calendar_timezone'))->endOfDay()->utc()]);
+                $item->description_document = $data['description_document'] ?? null;
+                if ($item->description_document !== null) {
+                    $item->description = AnnouncementContent::plainText($item->description_document);
+                }
                 if ($creating) {
                     $item->created_by = $actor->id;
                     $item->source_type = 'admin_announcement';

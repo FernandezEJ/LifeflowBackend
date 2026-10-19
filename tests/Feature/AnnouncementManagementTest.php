@@ -10,6 +10,7 @@ use App\Services\Admin\AnnouncementService;
 use App\Services\DonationReminderService;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -205,6 +206,85 @@ class AnnouncementManagementTest extends TestCase
         $this->assertDatabaseCount('donation_records', 0);
         $this->assertDatabaseHas('audit_logs', ['action' => 'announcement_deleted', 'target_id' => $id]);
         Queue::assertNothingPushed();
+    }
+
+    #[DataProvider('roles')]
+    public function test_staff_can_read_real_join_history_after_expiration_draft_and_deletion(string $role): void
+    {
+        Queue::fake();
+        $staff = $this->signIn($role);
+        $token = $staff->createToken('history-test')->plainTextToken;
+        $id = $this->postJson('/api/admin/announcements', $this->payload(['status' => 'published']))->assertCreated()->json('announcement.id');
+        $donor = $this->signIn('donor');
+        $donor->eligibilityAssessments()->create(['result' => 'eligible', 'answers' => [], 'reasons' => [], 'assessed_at' => now()]);
+        $joined = $this->postJson('/api/donation-opportunities/'.$id.'/join')->assertCreated()->json('participation.id');
+        $this->getJson('/api/announcements/'.$id)->assertOk()->assertJsonMissingPath('opportunity.participants_preview')->assertJsonMissingPath('opportunity.participants_count');
+        $this->getJson('/api/admin/announcements/'.$id.'/participants')->assertForbidden();
+        $this->withToken($token);
+        app('auth')->forgetGuards();
+        $this->getJson('/api/admin/announcements/'.$id)->assertOk()->assertJsonPath('announcement.participants_count', 1)
+            ->assertJsonPath('announcement.participants_preview.0.id', $donor->id);
+        $response = $this->getJson('/api/admin/announcements/'.$id.'/participants')->assertOk()->assertHeader('Cache-Control', 'no-store, private')
+            ->assertJsonPath('data.0.id', $joined)->assertJsonPath('data.0.donor.id', $donor->id)->assertJsonPath('data.0.status', 'pending')
+            ->assertJsonPath('meta.total', 1);
+        $this->assertSame(['id', 'status', 'joined_at', 'cancelled_at', 'donor'], array_keys($response->json('data.0')));
+        $this->assertSame(['id', 'name'], array_keys($response->json('data.0.donor')));
+        $this->travelTo('2026-10-02 05:00:00');
+        $this->getJson('/api/admin/announcements/'.$id)->assertOk()->assertJsonPath('announcement.status', 'expired')->assertJsonPath('announcement.participants_count', 1);
+        $this->getJson('/api/admin/announcements/'.$id.'/participants')->assertOk()->assertJsonPath('data.0.id', $joined);
+        $newDonor = $this->signIn('donor');
+        $newDonor->eligibilityAssessments()->create(['result' => 'eligible', 'answers' => [], 'reasons' => [], 'assessed_at' => now()]);
+        $this->postJson('/api/donation-opportunities/'.$id.'/join')->assertNotFound();
+        $this->withToken($token);
+        app('auth')->forgetGuards();
+        $this->postJson('/api/admin/announcements/'.$id.'/draft')->assertOk();
+        $this->getJson('/api/admin/announcements/'.$id)->assertOk()->assertJsonPath('announcement.status', 'draft')->assertJsonPath('announcement.participants_count', 1);
+        $this->deleteJson('/api/admin/announcements/'.$id)->assertOk();
+        $this->getJson('/api/admin/announcements/'.$id)->assertOk()->assertJsonPath('announcement.status', 'deleted')->assertJsonPath('announcement.participants_count', 1);
+        $this->getJson('/api/admin/announcements/'.$id.'/participants')->assertOk()->assertJsonPath('data.0.id', $joined);
+        $this->assertDatabaseCount('donation_participations', 1);
+    }
+
+    public function test_participant_counts_and_pages_preserve_cancelled_attempts_and_deleted_donor_history(): void
+    {
+        $this->signIn();
+        $id = $this->postJson('/api/admin/announcements', $this->payload())->assertCreated()->json('announcement.id');
+        $this->getJson('/api/admin/announcements/'.$id)->assertJsonPath('announcement.participants_count', 0)->assertJsonCount(0, 'announcement.participants_preview');
+        $this->getJson('/api/admin/announcements/'.$id.'/participants')->assertOk()->assertJsonCount(0, 'data')->assertJsonPath('meta.total', 0);
+        $this->postJson('/api/admin/announcements/'.$id.'/publish')->assertOk();
+        $this->getJson('/api/admin/announcements/'.$id)->assertOk()->assertJsonPath('announcement.status', 'active')->assertJsonPath('announcement.participants_count', 0);
+        $this->travelTo('2026-10-02 05:00:00');
+        $this->getJson('/api/admin/announcements/'.$id)->assertOk()->assertJsonPath('announcement.status', 'expired')->assertJsonPath('announcement.participants_count', 0);
+        $donors = User::factory()->count(3)->create();
+        foreach (range(1, 24) as $index) {
+            // Read-only history fixtures do not invoke verification/points observers.
+            DB::table('donation_participations')->insert(['user_id' => $donors[$index <= 22 ? 0 : ($index === 23 ? 1 : 2)]->id,
+                'donation_opportunity_id' => $id, 'source_type' => 'admin_announcement',
+                'status' => $index === 22 ? 'pending' : ($index === 23 ? 'completed' : 'cancelled'),
+                'joined_at' => now(), 'created_at' => now(), 'updated_at' => now()]);
+        }
+        $donors[1]->delete();
+        $other = $this->postJson('/api/admin/announcements', $this->payload())->assertCreated()->json('announcement.id');
+        DB::table('donation_participations')->insert(['user_id' => $donors[2]->id, 'donation_opportunity_id' => $other,
+            'source_type' => 'admin_announcement', 'status' => 'pending', 'joined_at' => now(), 'created_at' => now(), 'updated_at' => now()]);
+        $this->getJson('/api/admin/announcements/'.$id)->assertOk()->assertJsonPath('announcement.participants_count', 2)
+            ->assertJsonCount(2, 'announcement.participants_preview')->assertJsonPath('announcement.participants_preview.1.name', $donors[1]->name);
+        $first = $this->getJson('/api/admin/announcements/'.$id.'/participants')->assertOk()->assertJsonCount(20, 'data')
+            ->assertJsonPath('meta.total', 24)->assertJsonPath('meta.last_page', 2)->assertJsonPath('data.0.status', 'cancelled');
+        $this->assertSame($donors[1]->name, $first->json('data.1.donor.name'));
+        $this->getJson('/api/admin/announcements/'.$id.'/participants?page=2')->assertOk()->assertJsonCount(4, 'data')->assertJsonPath('meta.current_page', 2);
+        $this->getJson('/api/admin/announcements/'.$id.'/participants?page=0')->assertUnprocessable();
+        $this->getJson('/api/admin/announcements/999999/participants')->assertNotFound();
+        $this->postJson('/api/admin/announcements/'.$id.'/participants')->assertMethodNotAllowed();
+    }
+
+    public function test_participant_reads_keep_existing_staff_authentication_and_password_gates(): void
+    {
+        $this->getJson('/api/admin/announcements/1/participants')->assertUnauthorized();
+        foreach ([['donor', []], ['admin', ['deactivated_at' => now()]], ['super_admin', ['must_change_password' => true]]] as [$role, $attributes]) {
+            $this->signIn($role, $attributes);
+            $this->getJson('/api/admin/announcements/1/participants')->assertForbidden();
+        }
     }
 
     public function test_recovery_boundary_and_daily_schedule(): void
