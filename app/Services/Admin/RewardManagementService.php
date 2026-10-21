@@ -3,6 +3,7 @@
 namespace App\Services\Admin;
 
 use App\Models\Reward;
+use App\Models\RewardVariant;
 use App\Models\User;
 use App\Models\UserVoucher;
 use Illuminate\Support\Facades\DB;
@@ -13,6 +14,8 @@ class RewardManagementService
 {
     public function profile(Reward $reward): array
     {
+        $reward->loadMissing('variants');
+
         return [...$reward->toArray(), 'status' => $reward->trashed() ? 'deleted' : ($reward->active ? 'active' : 'inactive'),
             'scheduled_for_deletion_at' => $reward->deleted_at?->copy()->addDays(30)->toISOString(),
             'recoverable' => $reward->trashed() && $reward->deleted_at->gt(now()->subDays(30))];
@@ -20,7 +23,7 @@ class RewardManagementService
 
     public function listing(array $filters): array
     {
-        $query = Reward::withTrashed()->orderByDesc('id');
+        $query = Reward::withTrashed()->with('variants')->orderByDesc('id');
         if (trim($filters['search'] ?? '') !== '') {
             $query->whereLike('name', '%'.trim($filters['search']).'%');
         }
@@ -56,10 +59,16 @@ class RewardManagementService
                 // edit form if a donor or another admin changed it while open.
                 abort_if($id !== null && $reward->stock_quantity !== (int) $data['expected_stock'], 409,
                     'Stock changed. Reload the reward before saving again.');
+                $requiresVersion = $reward->category === 'apparel' || $data['category'] === 'apparel';
+                abort_if($id !== null && (($requiresVersion && ! isset($data['expected_inventory_version'])) ||
+                    (isset($data['expected_inventory_version']) && $reward->inventory_version !== (int) $data['expected_inventory_version'])), 409,
+                    'Size inventory changed. Reload the reward before saving again.');
+                $variants = $data['category'] === 'apparel' ? $data['variants'] : [];
+                $stock = $data['category'] === 'apparel' ? array_sum(array_column($variants, 'stock_quantity')) : $data['stock_quantity'];
                 $wasActive = $reward->active;
                 $reward->fill(['name' => $data['name'], 'category' => $data['category'], 'amount_mode' => $data['amount_mode'] ?? 'custom',
-                    'voucher_value' => $data['voucher_value'], 'points_cost' => $data['points_cost'],
-                    'stock_quantity' => $data['stock_quantity'], 'active' => $data['status'] === 'active']);
+                    'voucher_value' => $data['voucher_value'] ?? null, 'points_cost' => $data['points_cost'],
+                    'stock_quantity' => $stock, 'inventory_version' => ($reward->inventory_version ?? 0) + 1, 'active' => $data['status'] === 'active']);
                 if (isset($data['image'])) {
                     $newPath = $data['image']->store('rewards', 'public');
                     throw_if(! $newPath, \RuntimeException::class, 'Unable to store reward image.');
@@ -67,6 +76,11 @@ class RewardManagementService
                 }
                 // Old image files stay available to immutable owned-voucher snapshots.
                 $reward->save();
+                $reward->variants()->update(['enabled' => false, 'stock_quantity' => 0]);
+                foreach ($variants as $variant) {
+                    RewardVariant::updateOrCreate(['reward_id' => $reward->id, 'size' => $variant['size']],
+                        ['enabled' => true, 'stock_quantity' => $variant['stock_quantity']]);
+                }
                 $this->audit($actor, $reward, $id === null ? 'created' : 'updated');
                 if ($id !== null && $wasActive !== $reward->active) {
                     $this->audit($actor, $reward, $reward->active ? 'activated' : 'moved_to_draft');

@@ -171,15 +171,25 @@ class AdminManagementTest extends TestCase
         $admin = User::factory()->create(['role' => UserRole::Admin, 'password' => 'Password123!']);
         $old = $admin->createToken('admin-web');
         $admin->createToken('mobile');
+        $passwordHash = $admin->password;
+        $mustChangePassword = $admin->must_change_password;
+        DB::table('sessions')->insert([
+            ['id' => 'target-admin-session', 'user_id' => $admin->id, 'payload' => 'test', 'last_activity' => now()->timestamp],
+            ['id' => 'super-admin-session', 'user_id' => $super->id, 'payload' => 'test', 'last_activity' => now()->timestamp],
+        ]);
         $this->postJson('/api/admin/admins/'.$admin->id.'/deactivate')->assertOk()
             ->assertJsonPath('admin.scheduled_for_deletion_at', now()->addDays(30)->toISOString());
         $this->assertTrue($admin->fresh()->isDeactivated());
         $this->assertFalse($admin->fresh()->trashed());
         $this->assertSame(0, $admin->tokens()->count());
+        $this->assertDatabaseMissing('sessions', ['id' => 'target-admin-session']);
+        $this->assertDatabaseHas('sessions', ['id' => 'super-admin-session']);
         $this->postJson('/api/admin/login', ['email' => $admin->email, 'password' => 'Password123!'])->assertUnauthorized();
         $this->postJson('/api/admin/admins/'.$admin->id.'/deactivate')->assertConflict();
         $this->postJson('/api/admin/admins/'.$admin->id.'/reactivate')->assertOk()->assertJsonPath('admin.deactivated_at', null);
         $this->postJson('/api/admin/admins/'.$admin->id.'/reactivate')->assertConflict();
+        $this->assertSame($passwordHash, $admin->fresh()->password);
+        $this->assertSame($mustChangePassword, $admin->fresh()->must_change_password);
         $this->postJson('/api/admin/login', ['email' => $admin->email, 'password' => 'Password123!'])->assertOk();
         $this->app['auth']->forgetGuards();
         $this->withToken($old->plainTextToken)->getJson('/api/admin/me')->assertUnauthorized();

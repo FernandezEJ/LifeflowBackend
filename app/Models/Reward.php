@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
@@ -18,6 +19,15 @@ class Reward extends Model
 {
     use HasFactory, SoftDeletes;
 
+    public const CATEGORIES = ['merchandise', 'apparel', 'vouchers'];
+
+    public const LEGACY_CATEGORIES = ['grocery', 'medicine', 'fitness', 'other'];
+
+    public function variants(): HasMany
+    {
+        return $this->hasMany(RewardVariant::class)->orderByRaw("CASE size WHEN 'S' THEN 1 WHEN 'M' THEN 2 WHEN 'L' THEN 3 WHEN 'XL' THEN 4 ELSE 5 END");
+    }
+
     protected $hidden = ['image_path'];
 
     public function getImageUrlAttribute(?string $value): ?string
@@ -29,7 +39,7 @@ class Reward extends Model
 
     protected function casts(): array
     {
-        return ['active' => 'boolean', 'points_cost' => 'integer', 'stock_quantity' => 'integer',
+        return ['active' => 'boolean', 'points_cost' => 'integer', 'stock_quantity' => 'integer', 'inventory_version' => 'integer',
             'voucher_value' => 'decimal:2', 'starts_at' => 'datetime', 'ends_at' => 'datetime'];
     }
 

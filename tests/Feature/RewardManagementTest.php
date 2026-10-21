@@ -37,7 +37,7 @@ class RewardManagementTest extends TestCase
 
     private function data(array $changes = []): array
     {
-        return [...['name' => 'Grocery voucher', 'category' => 'grocery', 'voucher_value' => 100,
+        return [...['name' => 'Grocery voucher', 'category' => 'vouchers', 'voucher_value' => 100,
             'points_cost' => 100, 'stock_quantity' => 5, 'status' => 'active'], ...$changes];
     }
 
@@ -294,7 +294,7 @@ class RewardManagementTest extends TestCase
 
     public static function categories(): array
     {
-        return [['grocery'], ['medicine'], ['fitness'], ['other']];
+        return [['vouchers']];
     }
 
     #[DataProvider('categories')]
@@ -375,7 +375,7 @@ class RewardManagementTest extends TestCase
         $this->getJson('/api/admin/rewards?category=grocery')->assertOk()->assertJsonCount(1, 'data')
             ->assertJsonPath('data.0.amount_mode', 'fixed')->assertJsonPath('data.0.category', 'grocery');
         $this->putJson('/api/admin/rewards/'.$legacy->id, $this->data(['expected_stock' => 4, 'stock_quantity' => 4,
-            'category' => 'fitness', 'voucher_value' => '152.75']))->assertOk()->assertJsonPath('reward.amount_mode', 'custom');
+            'category' => 'grocery', 'voucher_value' => '152.75']))->assertOk()->assertJsonPath('reward.amount_mode', 'custom');
         $this->signIn($donor);
         $this->getJson('/api/vouchers/'.$voucher->id)->assertOk()->assertJsonPath('voucher.reward.name', 'Legacy grocery')
             ->assertJsonPath('voucher.reward.voucher_value', '100.00')->assertJsonPath('voucher.points_spent', 100);

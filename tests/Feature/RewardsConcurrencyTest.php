@@ -95,7 +95,7 @@ class RewardsConcurrencyTest extends TestCase
                 app(\App\Services\Admin\RewardClaimService::class)->confirm(
                     \App\Models\User::findOrFail((int) $argv[2]), getenv('LIFEFLOW_TEST_CLAIM_CODE'));
             } else {
-                app(\App\Services\RewardRedemptionService::class)->redeem((int) $argv[2], (int) $argv[3], $argv[4]);
+                app(\App\Services\RewardRedemptionService::class)->redeem((int) $argv[2], (int) $argv[3], $argv[4], getenv('LIFEFLOW_TEST_VARIANT') ? (int) getenv('LIFEFLOW_TEST_VARIANT') : null);
             }
             echo 'ok';
         } catch (\Illuminate\Validation\ValidationException $error) {
@@ -114,6 +114,7 @@ class RewardsConcurrencyTest extends TestCase
                 $mode === 'confirm' ? 'test-claim' : $key, $mode], base_path(), [
                     'APP_ENV' => 'testing', 'APP_KEY' => config('app.key'), 'DB_CONNECTION' => 'sqlite',
                     'DB_DATABASE' => $this->databaseFile, 'DB_URL' => '',
+                    'LIFEFLOW_TEST_VARIANT' => $mode === 'apparel' ? (string) Reward::findOrFail($id)->variants()->firstOrFail()->id : '',
                     'LIFEFLOW_TEST_CLAIM_CODE' => $mode === 'confirm' ? $key : '',
                 ]);
             $process->setInput($stream);
@@ -168,6 +169,24 @@ class RewardsConcurrencyTest extends TestCase
         $this->assertSame(-300, (int) PointTransaction::where('type', 'reward_redemption')->sum('amount'));
         $this->assertSame($case === 'same_balance' ? 1 : 0, (int) Reward::sum('stock_quantity'));
         $this->assertSame(300, UserVoucher::firstOrFail()->points_spent);
+    }
+
+    public function test_simultaneous_buyers_cannot_purchase_the_same_last_size(): void
+    {
+        $first = User::factory()->create();
+        $second = User::factory()->create();
+        $this->participation($first, 'completed');
+        $this->participation($second, 'completed');
+        $reward = Reward::factory()->create(['category' => 'apparel', 'stock_quantity' => 1]);
+        $variant = $reward->variants()->create(['size' => 'S', 'enabled' => true, 'stock_quantity' => 1]);
+        $results = $this->race([[$first->id, $reward->id, (string) Str::uuid()],
+            [$second->id, $reward->id, (string) Str::uuid()]], 'apparel');
+        sort($results);
+        $this->assertSame(['ok', 'unavailable'], $results);
+        $this->assertSame(0, $variant->fresh()->stock_quantity);
+        $this->assertSame(0, $reward->fresh()->stock_quantity);
+        $this->assertDatabaseCount('user_vouchers', 1);
+        $this->assertSame(1, PointTransaction::where('type', 'reward_redemption')->count());
     }
 
     public function test_concurrent_completions_get_distinct_donation_numbers(): void

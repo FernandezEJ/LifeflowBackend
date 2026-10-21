@@ -61,7 +61,7 @@ class RewardClaimService
         $status = $voucher->claimStatus();
 
         return ['voucher_id' => $voucher->id, 'donor_name' => $voucher->user?->name ?? 'Unavailable donor',
-            'reward' => Arr::only($voucher->reward_snapshot ?? [], ['id', 'name', 'description', 'category', 'voucher_value', 'points_cost', 'image_url']),
+            'reward' => Arr::only($voucher->reward_snapshot ?? [], ['id', 'name', 'description', 'category', 'voucher_value', 'points_cost', 'image_url', 'size', 'variant_id']),
             'points_spent' => $voucher->points_spent, 'claim_status' => $status,
             'status_label' => match ($status) {
                 'claimed' => 'Already Claimed', 'pending_claim' => 'Pending Claim', default => 'Unavailable',

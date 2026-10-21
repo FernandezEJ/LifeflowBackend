@@ -34,14 +34,18 @@ class RewardsController extends Controller
             ->orderByDesc('id')->paginate(20));
     }
 
-    public function rewards(): JsonResponse
+    public function rewards(Request $request): JsonResponse
     {
-        return response()->json(['data' => Reward::current()->orderByDesc('id')->get(), 'request_key' => (string) Str::uuid()]);
+        $request->validate(['category' => ['sometimes', 'in:all,merchandise,apparel,vouchers,grocery,medicine,fitness,other']]);
+
+        return response()->json(['data' => Reward::current()->with(['variants' => fn ($query) => $query->where('enabled', true)])
+            ->when($request->filled('category') && $request->input('category') !== 'all', fn ($query) => $query->where('category', $request->input('category')))
+            ->orderByDesc('id')->get(), 'request_key' => (string) Str::uuid()]);
     }
 
     public function reward(int $id): JsonResponse
     {
-        return response()->json(['reward' => Reward::current()->findOrFail($id)]);
+        return response()->json(['reward' => Reward::current()->with(['variants' => fn ($query) => $query->where('enabled', true)])->findOrFail($id)]);
     }
 
     // ========================================
@@ -51,12 +55,12 @@ class RewardsController extends Controller
     // ========================================
     public function redeem(Request $request, int $id, RewardRedemptionService $redemption, VoucherService $vouchers, PointsService $points): JsonResponse
     {
-        $this->only($request, ['request_key']);
-        $data = $request->validate(['request_key' => ['required', 'uuid']]);
-        $voucher = $redemption->redeem($request->user()->id, $id, $data['request_key']);
+        $this->only($request, ['request_key', 'variant_id']);
+        $data = $request->validate(['request_key' => ['required', 'uuid'], 'variant_id' => ['sometimes', 'nullable', 'integer', 'min:1']]);
+        $voucher = $redemption->redeem($request->user()->id, $id, $data['request_key'], isset($data['variant_id']) ? (int) $data['variant_id'] : null);
 
         return response()->json(['voucher' => $vouchers->payload($voucher->refresh(), $request->user()->id),
-            'summary' => $points->summary($request->user()->id), 'reward' => Reward::withTrashed()->findOrFail($id),
+            'summary' => $points->summary($request->user()->id), 'reward' => Reward::withTrashed()->with(['variants' => fn ($query) => $query->where('enabled', true)])->findOrFail($id),
             'server_time' => now()->toISOString()])->header('Cache-Control', 'private, no-store');
     }
 

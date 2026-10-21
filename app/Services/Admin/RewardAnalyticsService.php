@@ -31,8 +31,9 @@ class RewardAnalyticsService
                 $date = Carbon::parse($row->created_at, 'UTC')->timezone(config('app.calendar_timezone'));
 
                 return ['id' => $row->id, 'reward_id' => $row->reward_id, 'donor' => $row->donor ?? 'Unavailable donor',
-                    'reward' => $snapshot['name'] ?? $row->reward_name, 'voucherValue' => (float) ($snapshot['voucher_value'] ?? $row->voucher_value),
-                    'category' => $row->category ?? 'grocery',
+                    'reward' => $snapshot['name'] ?? $row->reward_name,
+                    'voucherValue' => array_key_exists('voucher_value', $snapshot) ? ($snapshot['voucher_value'] === null ? null : (float) $snapshot['voucher_value']) : ($row->voucher_value === null ? null : (float) $row->voucher_value),
+                    'category' => $snapshot['category'] ?? $row->category ?? 'grocery', 'size' => $snapshot['size'] ?? null,
                     'pointsUsed' => -(int) $row->amount, 'created_at' => $date->toISOString(), 'redeemedDate' => $date->toDateString(),
                     'status' => $row->status,
                     'claim_status' => $row->claimed_at !== null ? 'claimed' : ($row->status === 'active' && $row->has_claim_code ? 'pending_claim' : ($row->status === 'available' && ! $row->has_claim_code ? 'available' : 'legacy')),

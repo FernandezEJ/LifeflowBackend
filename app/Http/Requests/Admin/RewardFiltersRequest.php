@@ -14,7 +14,7 @@ class RewardFiltersRequest extends FormRequest
     public function rules(): array
     {
         return ['search' => ['sometimes', 'nullable', 'string', 'max:255'],
-            'category' => ['sometimes', 'in:all,grocery,medicine,fitness,other'],
+            'category' => ['sometimes', 'in:all,merchandise,apparel,vouchers,grocery,medicine,fitness,other'],
             'amount' => ['sometimes', 'numeric', 'min:0.01', 'max:100000'],
             'status' => ['sometimes', 'in:all,active,inactive,deleted,available,redeemed,expired'],
             'year' => ['sometimes', 'integer', 'min:2000', 'max:'.(now(config('app.calendar_timezone'))->year + 1)],
