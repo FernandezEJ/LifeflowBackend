@@ -6,12 +6,14 @@ use App\Models\Reward;
 use App\Models\RewardVariant;
 use App\Models\User;
 use App\Models\UserVoucher;
+use App\Services\MediaStorage;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Storage;
 use Throwable;
 
 class RewardManagementService
 {
+    public function __construct(private readonly MediaStorage $media) {}
+
     public function profile(Reward $reward): array
     {
         $reward->loadMissing('variants');
@@ -70,8 +72,7 @@ class RewardManagementService
                     'voucher_value' => $data['voucher_value'] ?? null, 'points_cost' => $data['points_cost'],
                     'stock_quantity' => $stock, 'inventory_version' => ($reward->inventory_version ?? 0) + 1, 'active' => $data['status'] === 'active']);
                 if (isset($data['image'])) {
-                    $newPath = $data['image']->store('rewards', 'public');
-                    throw_if(! $newPath, \RuntimeException::class, 'Unable to store reward image.');
+                    $newPath = $this->media->store($data['image'], 'rewards');
                     $reward->image_path = $newPath;
                 }
                 // Old image files stay available to immutable owned-voucher snapshots.
@@ -90,7 +91,7 @@ class RewardManagementService
             });
         } catch (Throwable $error) {
             if ($newPath) {
-                Storage::disk('public')->delete($newPath);
+                $this->media->discardNewUpload($newPath);
             }
             throw $error;
         }

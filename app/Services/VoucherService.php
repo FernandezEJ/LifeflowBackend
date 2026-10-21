@@ -12,7 +12,7 @@ use Illuminate\Validation\ValidationException;
 
 class VoucherService
 {
-    public function __construct(private readonly RewardClaimCode $codes) {}
+    public function __construct(private readonly RewardClaimCode $codes, private readonly MediaStorage $media) {}
 
     /** Issue once under owner/voucher locks. No spending, inventory changes or timer reconciliation. */
     public function activate(int $userId, int $id): UserVoucher
@@ -69,6 +69,7 @@ class VoucherService
         $voucher->loadMissing('reward');
         $data = $voucher->toArray();
         $data['reward'] = [...($data['reward'] ?? []), ...($voucher->reward_snapshot ?? [])];
+        $data['reward']['image_url'] = $this->media->snapshotUrl($data['reward']['image_url'] ?? null);
         unset($data['reward_snapshot']);
         $data['claim_status'] = $voucher->claimStatus();
         $data['is_legacy'] = $data['claim_status'] === 'legacy';

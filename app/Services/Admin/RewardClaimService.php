@@ -4,6 +4,7 @@ namespace App\Services\Admin;
 
 use App\Models\User;
 use App\Models\UserVoucher;
+use App\Services\MediaStorage;
 use App\Services\RewardClaimCode;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\QueryException;
@@ -12,7 +13,7 @@ use Illuminate\Support\Facades\DB;
 
 class RewardClaimService
 {
-    public function __construct(private readonly RewardClaimCode $codes) {}
+    public function __construct(private readonly RewardClaimCode $codes, private readonly MediaStorage $media) {}
 
     public function verify(#[\SensitiveParameter] string $code): array
     {
@@ -59,9 +60,11 @@ class RewardClaimService
     private function details(UserVoucher $voucher): array
     {
         $status = $voucher->claimStatus();
+        $reward = Arr::only($voucher->reward_snapshot ?? [], ['id', 'name', 'description', 'category', 'voucher_value', 'points_cost', 'image_url', 'size', 'variant_id']);
+        $reward['image_url'] = $this->media->snapshotUrl($reward['image_url'] ?? null);
 
         return ['voucher_id' => $voucher->id, 'donor_name' => $voucher->user?->name ?? 'Unavailable donor',
-            'reward' => Arr::only($voucher->reward_snapshot ?? [], ['id', 'name', 'description', 'category', 'voucher_value', 'points_cost', 'image_url', 'size', 'variant_id']),
+            'reward' => $reward,
             'points_spent' => $voucher->points_spent, 'claim_status' => $status,
             'status_label' => match ($status) {
                 'claimed' => 'Already Claimed', 'pending_claim' => 'Pending Claim', default => 'Unavailable',

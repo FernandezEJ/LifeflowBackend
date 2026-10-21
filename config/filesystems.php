@@ -15,6 +15,15 @@ return [
 
     'default' => env('FILESYSTEM_DISK', 'local'),
 
+    // Only new announcement/reward images; stored references control reads independently.
+    'media_disk' => env('LIFEFLOW_MEDIA_DISK', 'public'),
+
+    // New proofs only; per-record provenance keeps local and R2 history readable.
+    'proof_disk' => env('LIFEFLOW_PROOF_DISK', 'proofs'),
+
+    // New proofs only; per-record provenance keeps local and R2 history readable.
+    'proof_disk' => env('LIFEFLOW_PROOF_DISK', 'proofs'),
+
     /*
     |--------------------------------------------------------------------------
     | Filesystem Disks
@@ -65,6 +74,40 @@ return [
             'use_path_style_endpoint' => env('AWS_USE_PATH_STYLE_ENDPOINT', false),
             'throw' => false,
             'report' => false,
+        ],
+
+        'r2_media' => [
+            'driver' => 's3',
+            'key' => env('R2_ACCESS_KEY_ID'),
+            'secret' => env('R2_SECRET_ACCESS_KEY'),
+            'region' => env('R2_REGION', 'auto'),
+            'bucket' => env('R2_MEDIA_BUCKET'),
+            'endpoint' => env('R2_ENDPOINT'),
+            'use_path_style_endpoint' => true,
+            'visibility' => 'private',
+            'directory_visibility' => 'private',
+            'serve' => false,
+            'throw' => true,
+            'report' => false,
+            'retries' => 1,
+            'http' => ['connect_timeout' => 5, 'timeout' => 15],
+        ],
+
+        'r2_proofs' => [
+            'driver' => 's3',
+            'key' => env('R2_ACCESS_KEY_ID'),
+            'secret' => env('R2_SECRET_ACCESS_KEY'),
+            'region' => env('R2_REGION', 'auto'),
+            'bucket' => env('R2_PROOFS_BUCKET'),
+            'endpoint' => env('R2_ENDPOINT'),
+            'use_path_style_endpoint' => true,
+            'visibility' => 'private',
+            'directory_visibility' => 'private',
+            'serve' => false,
+            'throw' => true,
+            'report' => false,
+            'retries' => 1,
+            'http' => ['connect_timeout' => 5, 'timeout' => 15],
         ],
 
     ],

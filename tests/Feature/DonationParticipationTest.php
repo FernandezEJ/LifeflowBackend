@@ -283,9 +283,9 @@ class DonationParticipationTest extends TestCase
         $id = $this->postJson('/api/donation-opportunities/red-cross-dagupan/join')->assertCreated()->json('participation.id');
         $disk = \Mockery::mock(FilesystemAdapter::class);
         $disk->shouldReceive('putFileAs')->once()->andReturn(false);
-        $disk->shouldReceive('delete')->once()->andReturn(true);
+        $disk->shouldReceive('delete')->never();
         Storage::shouldReceive('disk')->with('proofs')->andReturn($disk);
-        $this->postJson('/api/donation-participations/'.$id.'/proof', $this->proofFile())->assertStatus(500);
+        $this->postJson('/api/donation-participations/'.$id.'/proof', $this->proofFile())->assertStatus(503);
         $this->assertDatabaseHas('donation_participations', ['id' => $id, 'status' => 'pending', 'proof_path' => null]);
     }
 
@@ -308,10 +308,10 @@ class DonationParticipationTest extends TestCase
             ->assertJsonPath('participation.proof_size', 2048);
         $row->refresh();
         $this->assertNotSame($oldPath, $row->proof_path);
-        Storage::disk('proofs')->assertMissing($oldPath);
+        Storage::disk('proofs')->assertExists($oldPath);
         Storage::disk('proofs')->assertExists($row->proof_path);
         $this->postJson($url, $this->proofFile())->assertConflict();
-        $this->assertCount(1, Storage::disk('proofs')->allFiles());
+        $this->assertCount(2, Storage::disk('proofs')->allFiles());
         $this->assertDatabaseCount('point_transactions', 0);
         $this->assertDatabaseCount('notifications', 1);
         $this->assertDatabaseHas('notifications', ['type' => 'donation_needs_revision']);

@@ -2,11 +2,11 @@
 
 namespace App\Models;
 
+use App\Services\MediaStorage;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
-use Illuminate\Support\Facades\Storage;
 
 class DonationOpportunity extends Model
 {
@@ -18,7 +18,7 @@ class DonationOpportunity extends Model
 
     public function getImageUrlAttribute(): ?string
     {
-        return $this->image_path ? Storage::disk('public')->url($this->image_path) : null;
+        return app(MediaStorage::class)->announcementUrl($this);
     }
 
     public function getDonationDateAttribute(): ?string

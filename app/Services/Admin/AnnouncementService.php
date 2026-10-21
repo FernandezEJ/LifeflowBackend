@@ -5,15 +5,17 @@ namespace App\Services\Admin;
 use App\Models\DonationOpportunity;
 use App\Models\User;
 use App\Services\AnnouncementContent;
+use App\Services\MediaStorage;
 use App\Services\NotificationService;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 use Throwable;
 
 class AnnouncementService
 {
+    public function __construct(private readonly MediaStorage $media) {}
+
     public function detail(int $id): array
     {
         $item = $this->find($id, true);
@@ -99,9 +101,8 @@ class AnnouncementService
     public function save(User $actor, array $data, ?int $id = null): DonationOpportunity
     {
         $newPath = null;
-        $oldPath = null;
         try {
-            $item = DB::transaction(function () use ($actor, $data, $id, &$newPath, &$oldPath): DonationOpportunity {
+            $item = DB::transaction(function () use ($actor, $data, $id, &$newPath): DonationOpportunity {
                 $item = $id === null ? new DonationOpportunity : DonationOpportunity::where('source_type', 'admin_announcement')->lockForUpdate()->findOrFail($id);
                 $creating = ! $item->exists;
                 $item->fill(['title' => $data['title'], 'description' => $data['description'], 'location' => $data['location'],
@@ -117,9 +118,7 @@ class AnnouncementService
                     $item->status = 'draft';
                 }
                 if (isset($data['image'])) {
-                    $oldPath = $item->image_path;
-                    $newPath = $data['image']->store('announcements', 'public');
-                    throw_if(! $newPath, \RuntimeException::class, 'Unable to store announcement image.');
+                    $newPath = $this->media->store($data['image'], 'announcements');
                     $item->image_path = $newPath;
                 }
                 $item->save();
@@ -137,13 +136,11 @@ class AnnouncementService
             });
         } catch (Throwable $error) {
             if ($newPath) {
-                Storage::disk('public')->delete($newPath);
+                $this->media->discardNewUpload($newPath);
             }
             throw $error;
         }
-        if ($oldPath && $oldPath !== $newPath) {
-            Storage::disk('public')->delete($oldPath);
-        }
+        // Replacement is non-destructive; historical local/R2 media is retained.
 
         return $item;
     }
@@ -197,9 +194,7 @@ class AnnouncementService
 
                             return;
                         }
-                        if ($locked->image_path) {
-                            Storage::disk('public')->delete($locked->image_path);
-                        }
+                        // Media retention is separate from definition purging; never remove originals here.
                         $locked->forceDelete();
                         $counts['purged']++;
                     });

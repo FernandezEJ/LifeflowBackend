@@ -2,12 +2,12 @@
 
 namespace App\Models;
 
+use App\Services\MediaStorage;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 
 // ========================================
@@ -30,9 +30,11 @@ class Reward extends Model
 
     protected $hidden = ['image_path'];
 
+    protected $appends = ['image_url'];
+
     public function getImageUrlAttribute(?string $value): ?string
     {
-        return $this->image_path ? url(Storage::disk('public')->url($this->image_path)) : $value;
+        return app(MediaStorage::class)->rewardUrl($this, $value);
     }
 
     protected $guarded = ['id'];

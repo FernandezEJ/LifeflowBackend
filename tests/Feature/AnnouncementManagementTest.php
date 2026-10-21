@@ -154,7 +154,7 @@ class AnnouncementManagementTest extends TestCase
         $this->assertStringNotContainsString('untrusted-name', $old);
         $this->assertStringContainsString('/storage/announcements/', $result->json('announcement.image_url'));
         $this->post('/api/admin/announcements/'.$id, $this->payload(['_method' => 'PUT', 'image' => UploadedFile::fake()->image('replacement.jpg')]), ['Accept' => 'application/json'])->assertOk();
-        Storage::disk('public')->assertMissing($old);
+        Storage::disk('public')->assertExists($old);
         $new = DonationOpportunity::findOrFail($id)->image_path;
         Storage::disk('public')->assertExists($new);
         $this->post('/api/admin/announcements', $this->payload(['image' => UploadedFile::fake()->create('bad.svg', 1, 'image/svg+xml')]), ['Accept' => 'application/json'])->assertUnprocessable();
@@ -163,7 +163,7 @@ class AnnouncementManagementTest extends TestCase
         Storage::disk('public')->assertExists($new);
         $this->travel(30)->days();
         $this->artisan('announcements:purge-deleted')->assertExitCode(0);
-        Storage::disk('public')->assertMissing($new);
+        Storage::disk('public')->assertExists($new);
         $this->assertDatabaseMissing('donation_opportunities', ['id' => $id]);
     }
 

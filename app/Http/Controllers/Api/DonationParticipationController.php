@@ -10,9 +10,6 @@ use App\Services\PrivateDonationProof;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
@@ -139,26 +136,20 @@ class DonationParticipationController extends Controller
     }
 
     // Actual file bytes are validated and stored privately; no external URLs are accepted.
-    public function proof(Request $request, int $id)
+    public function proof(Request $request, int $id, PrivateDonationProof $proof)
     {
         $this->only($request, ['proof']);
         $path = null;
+        $item = null;
         try {
-            return DB::transaction(function () use ($request, $id, &$path) {
+            return DB::transaction(function () use ($request, $id, $proof, &$path, &$item) {
                 $item = $request->user()->donationParticipations()->lockForUpdate()->findOrFail($id);
                 abort_unless(in_array($item->status, ['pending', 'needs_revision'], true), 409, 'Only pending or needs-revision participation accepts proof.');
-                $oldPath = $item->proof_path;
                 $request->validate(['proof' => ['required', 'file', 'mimetypes:image/jpeg,image/png,application/pdf', 'max:5120']]);
                 $file = $request->file('proof');
                 abort_unless($file->getSize() > 0, 422, 'Choose a non-empty proof file.');
                 $mime = $file->getMimeType();
-                $extension = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'application/pdf' => 'pdf'][$mime];
-                $directory = 'donation-proofs/'.$request->user()->id.'/'.$item->id;
-                $path = $directory.'/'.Str::uuid().'.'.$extension;
-                $stored = Storage::disk('proofs')->putFileAs($directory, $file, basename($path));
-                if ($stored === false) {
-                    throw new \RuntimeException('Private proof storage failed.');
-                }
+                $path = $proof->store($item, $file);
                 $item->proof_path = $path;
                 $item->proof_size = $file->getSize();
                 $item->proof_original_name = mb_substr(preg_replace('~[/\\\\\\x00-\\x1F\\x7F]~', '_', $file->getClientOriginalName()), 0, 255);
@@ -167,28 +158,14 @@ class DonationParticipationController extends Controller
                 $item->status = 'for_verification';
                 $item->revision_reason = null;
                 $item->save();
-                // Delete only this activity's previous private file, after the replacement commits.
-                $prefix = $directory.'/';
-                if (is_string($oldPath) && str_starts_with($oldPath, $prefix)
-                    && preg_match('~^[a-f0-9-]{36}\\.(jpg|png|pdf)$~D', substr($oldPath, strlen($prefix)))) {
-                    DB::afterCommit(function () use ($oldPath): void {
-                        try {
-                            if (! Storage::disk('proofs')->delete($oldPath)) {
-                                Log::warning('Previous proof cleanup did not complete.');
-                            }
-                        } catch (\Throwable) {
-                            // Cleanup failure must not undo or delete the committed replacement.
-                            Log::warning('Previous proof cleanup did not complete.');
-                        }
-                    });
-                }
+                // Retain earlier proofs on either disk; only a failed new attempt may be cleaned up.
 
                 return response()->json(['participation' => $item->load('opportunity')]);
             });
         } catch (\Throwable $error) {
             // Rollback cannot undo filesystem writes. Remove only this attempt's generated file.
-            if ($path !== null) {
-                Storage::disk('proofs')->delete($path);
+            if ($path !== null && $item !== null) {
+                $proof->discardNewUpload($item, $path);
             }
             throw $error;
         }

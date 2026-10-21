@@ -11,6 +11,8 @@ use Illuminate\Validation\ValidationException;
 
 class RewardRedemptionService
 {
+    public function __construct(private readonly MediaStorage $media) {}
+
     // ========================================
     // ATOMIC REDEMPTION
     // Always lock donor then inventory. Different rewards cannot overspend the
@@ -51,7 +53,8 @@ class RewardRedemptionService
                 'reward_variant_id' => $variant?->id, 'status' => 'available', 'voucher_token' => Str::random(64), 'redemption_key' => $requestKey,
                 'reward_snapshot' => ['id' => $reward->id, 'name' => $reward->name, 'description' => $reward->description, 'category' => $reward->category,
                     'size' => $variant?->size, 'variant_id' => $variant?->id,
-                    'voucher_value' => $reward->voucher_value, 'points_cost' => $reward->points_cost, 'image_url' => $reward->image_url]])->save();
+                    'voucher_value' => $reward->voucher_value, 'points_cost' => $reward->points_cost,
+                    'image_url' => $this->media->snapshotReference($reward)]])->save();
             app(PointsService::class)->deduct($voucher);
             if ($variant) {
                 $variant->decrement('stock_quantity');
