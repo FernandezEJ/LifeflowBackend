@@ -11,6 +11,7 @@ use App\Services\DonationReminderService;
 use App\Services\PushNotificationService;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Bus;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -64,6 +65,8 @@ class DonationReminderTest extends TestCase
             ->assertJsonPath('reminders.0.activity_title', 'Tomorrow drive')->assertJsonPath('reminders.0.start_time', '09:00:00');
         $this->getJson('/api/notifications/unread-count')->assertJsonPath('unread_count', 1);
         $this->postJson('/api/notifications/'.$notice->id.'/read')->assertOk();
+        $this->getJson('/api/notifications/reminders')->assertJsonCount(1, 'reminders');
+        $this->postJson('/api/notifications/'.$notice->id.'/preparation-acknowledgement')->assertOk()->assertJsonPath('acknowledged', true);
         $this->getJson('/api/notifications/reminders')->assertJsonCount(0, 'reminders');
         $this->assertDatabaseCount('notifications', 1);
     }
@@ -172,5 +175,110 @@ class DonationReminderTest extends TestCase
         $this->assertNull($notice->fresh()->read_at);
         $this->assertDatabaseCount('notifications', 1);
         Http::assertNothingSent();
+    }
+
+    public function test_acknowledgement_is_idempotent_across_devices_separate_from_read_state_and_reopenable(): void
+    {
+        $item = $this->activity();
+        $this->withToken($item->user->createToken('device-a')->plainTextToken);
+        $id = $this->getJson('/api/notifications/reminders')->assertOk()->assertJsonCount(1, 'reminders')->json('reminders.0.notification.id');
+        $url = '/api/notifications/'.$id.'/preparation-acknowledgement';
+        $this->postJson($url)->assertOk();
+        $first = DB::table('donation_preparation_acknowledgements')->first();
+        $this->withToken($item->user->createToken('device-b')->plainTextToken);
+        $this->postJson($url)->assertOk();
+        $this->assertDatabaseCount('donation_preparation_acknowledgements', 1);
+        $this->assertSame($first->acknowledged_at, DB::table('donation_preparation_acknowledgements')->first()->acknowledged_at);
+        $this->getJson('/api/notifications/reminders')->assertJsonCount(0, 'reminders');
+        $this->getJson('/api/notifications/'.$id.'/preparation')->assertOk()->assertJsonPath('reminder.notification.id', $id);
+        $this->getJson('/api/notifications/unread-count')->assertJsonPath('unread_count', 1);
+        $this->getJson('/api/notifications')->assertJsonPath('data.0.id', $id);
+        $this->assertNull(Notification::findOrFail($id)->read_at);
+        $this->postJson('/api/notifications/'.$id.'/read')->assertOk();
+        $this->getJson('/api/notifications/'.$id.'/preparation')->assertOk();
+        Http::assertNothingSent();
+    }
+
+    public function test_acknowledgement_cannot_choose_an_owner_or_access_foreign_or_non_reminder_notices(): void
+    {
+        $item = $this->activity();
+        app(DonationReminderService::class)->sendDue();
+        $id = Notification::firstOrFail()->id;
+        $url = '/api/notifications/'.$id.'/preparation-acknowledgement';
+        $this->postJson($url)->assertUnauthorized();
+        $foreign = User::factory()->create();
+        $this->app['auth']->forgetGuards();
+        $this->withToken($foreign->createToken('foreign')->plainTextToken);
+        $this->postJson($url)->assertNotFound();
+        $this->getJson('/api/notifications/'.$id.'/preparation')->assertNotFound();
+        $this->app['auth']->forgetGuards();
+        $this->withToken($item->user->createToken('owner')->plainTextToken);
+        $this->postJson($url, ['user_id' => $foreign->id])->assertUnprocessable();
+        $notice = Notification::create(['user_id' => $item->user_id, 'type' => 'admin_announcement', 'event_key' => 'other', 'title' => 'Other', 'message' => 'Other']);
+        $this->postJson('/api/notifications/'.$notice->id.'/preparation-acknowledgement')->assertNotFound();
+        $this->assertDatabaseCount('donation_preparation_acknowledgements', 0);
+        $staff = User::factory()->create(['role' => 'admin']);
+        $this->app['auth']->forgetGuards();
+        $this->withToken($staff->createToken('staff')->plainTextToken);
+        $this->getJson('/api/notifications/reminders')->assertForbidden();
+        $this->postJson($url)->assertForbidden();
+    }
+
+    public function test_acknowledgement_is_per_donor_and_activity_even_after_cancel_and_rejoin(): void
+    {
+        $item = $this->activity();
+        $other = $this->activity();
+        $other->forceFill(['donation_opportunity_id' => $item->donation_opportunity_id])->saveQuietly();
+        $second = $this->activity();
+        $second->forceFill(['user_id' => $item->user_id])->saveQuietly();
+        $this->withToken($item->user->createToken('owner')->plainTextToken);
+        $this->getJson('/api/notifications/reminders')->assertJsonCount(2, 'reminders');
+        $notice = Notification::where('user_id', $item->user_id)->where('data->participation_id', $item->id)->firstOrFail();
+        $this->postJson('/api/notifications/'.$notice->id.'/preparation-acknowledgement')->assertOk();
+        $this->getJson('/api/notifications/reminders')->assertJsonCount(1, 'reminders');
+        $item->forceFill(['status' => 'cancelled', 'cancelled_at' => now()])->saveQuietly();
+        $rejoined = $this->activity();
+        $rejoined->forceFill(['user_id' => $item->user_id, 'donation_opportunity_id' => $item->donation_opportunity_id])->saveQuietly();
+        $this->getJson('/api/notifications/reminders')->assertJsonCount(1, 'reminders');
+        $this->app['auth']->forgetGuards();
+        $this->withToken($other->user->createToken('other')->plainTextToken);
+        $this->getJson('/api/notifications/reminders')->assertJsonCount(1, 'reminders');
+        $this->assertDatabaseCount('donation_preparation_acknowledgements', 1);
+    }
+
+    public function test_stale_guide_cannot_be_opened_or_acknowledged_after_cancellation_or_midnight(): void
+    {
+        $this->travelTo(CarbonImmutable::parse('2026-10-27T15:59:00Z'));
+        $item = $this->activity();
+        $item->opportunity->update(['event_date' => '2026-10-28']);
+        $this->withToken($item->user->createToken('owner')->plainTextToken);
+        $id = $this->getJson('/api/notifications/reminders')->json('reminders.0.notification.id');
+        $item->forceFill(['cancelled_at' => now()])->saveQuietly();
+        $this->getJson('/api/notifications/'.$id.'/preparation')->assertConflict();
+        $this->postJson('/api/notifications/'.$id.'/preparation-acknowledgement')->assertConflict();
+        $item->forceFill(['cancelled_at' => null])->saveQuietly();
+        $this->travelTo(CarbonImmutable::parse('2026-10-27T16:00:00Z'));
+        $this->postJson('/api/notifications/'.$id.'/preparation-acknowledgement')->assertConflict();
+        $this->assertDatabaseCount('donation_preparation_acknowledgements', 0);
+        $this->assertDatabaseCount('notifications', 1);
+    }
+
+    public function test_unjoined_removed_and_unpublished_events_cannot_get_preparation_guides(): void
+    {
+        $item = $this->activity();
+        $this->withToken($item->user->createToken('owner')->plainTextToken);
+        $id = $this->getJson('/api/notifications/reminders')->json('reminders.0.notification.id');
+        $this->app['auth']->forgetGuards();
+        $this->withToken(User::factory()->create()->createToken('nonparticipant')->plainTextToken);
+        $this->getJson('/api/notifications/reminders')->assertJsonCount(0, 'reminders');
+        $this->postJson('/api/notifications/'.$id.'/preparation-acknowledgement')->assertNotFound();
+        $this->app['auth']->forgetGuards();
+        $this->withToken($item->user->createToken('owner-again')->plainTextToken);
+        $item->opportunity->update(['status' => 'draft']);
+        $this->getJson('/api/notifications/'.$id.'/preparation')->assertConflict();
+        $item->opportunity->update(['status' => 'published']);
+        $item->opportunity->delete();
+        $this->getJson('/api/notifications/'.$id.'/preparation')->assertConflict();
+        $this->assertDatabaseCount('donation_preparation_acknowledgements', 0);
     }
 }

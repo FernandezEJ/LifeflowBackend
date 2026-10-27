@@ -84,7 +84,7 @@ class DonorPasswordlessTest extends TestCase
         $this->assertSame(now()->addMinutes(10)->toDateTimeString(), $this->row()->expires_at);
         Queue::assertPushed(SendDonorLoginCode::class, fn ($job) => $job instanceof ShouldBeEncrypted && $job->queue === 'donor-logins' && ! str_contains(serialize($job), $code));
         $mail->assertHasTo($donor->email);
-        $mail->assertHasSubject('Your LifeFlow Login Code');
+        $mail->assertHasSubject('Your LifeFlow verification code');
         $mail->assertSeeInText('expires in 10 minutes');
         $session = $this->verify($code)->assertOk()->assertJsonPath('user.id', $donor->id)->assertJsonMissingPath('user.password')->json('token');
         $this->assertNotNull($this->row()->used_at);

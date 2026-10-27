@@ -21,7 +21,8 @@ class DonationParticipationController extends Controller
     // ========================================
     public function opportunities()
     {
-        return response()->json(['data' => DonationOpportunity::active()->orderByDesc('published_at')->orderByDesc('id')->get()]);
+        return response()->json(['data' => DonationOpportunity::active()->orderByDesc('published_at')->orderByDesc('id')->get(),
+            'permanent_post' => DonationOpportunity::redCrossDagupan()])->header('Cache-Control', 'private, no-store');
     }
 
     public function opportunity(string $id)
@@ -31,7 +32,8 @@ class DonationParticipationController extends Controller
         }
         abort_unless(ctype_digit($id), 404);
 
-        return response()->json(['opportunity' => DonationOpportunity::active()->findOrFail($id)]);
+        return response()->json(['opportunity' => DonationOpportunity::active()->findOrFail($id), 'server_time' => now()->toIso8601String()])
+            ->header('Cache-Control', 'private, no-store');
     }
 
     // Both sources use this same join, proof and verification lifecycle.

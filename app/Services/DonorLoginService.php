@@ -16,16 +16,16 @@ use Throwable;
 
 class DonorLoginService
 {
-    public const NOTICE = 'If the account is eligible for passwordless login, a verification code has been sent.';
+    public const NOTICE = 'If these details match a registered account, check its verified email for a code.';
 
     public const EXPIRY_SECONDS = 600;
 
     public const RESEND_SECONDS = 60;
 
-    /** Queue known and unknown numbers identically; no account lookup or SMTP on the public request path. */
-    public function request(string $mobile): array
+    /** Queue all valid identifiers identically; mobile_hash remains the legacy column name for the identifier digest. */
+    public function request(string $identifier): array
     {
-        $key = hash('sha256', $mobile);
+        $key = hash('sha256', $identifier);
         if (! Cache::add('donor-login:'.$key, true, self::RESEND_SECONDS)) {
             abort(429, 'Please wait 60 seconds before requesting another login code.');
         }
@@ -45,7 +45,7 @@ class DonorLoginService
             ]], ['mobile_hash']);
         }, 3);
         try {
-            SendDonorLoginCode::dispatch($id, $mobile)->onConnection('database')->onQueue('donor-logins')->afterCommit();
+            SendDonorLoginCode::dispatch($id, $identifier)->onConnection('database')->onQueue('donor-logins')->afterCommit();
         } catch (Throwable) {
             $this->invalidateDelivery($id);
             Log::error('Donor login code could not be queued. Check queue configuration.');
@@ -55,12 +55,15 @@ class DonorLoginService
     }
 
     /** Refuse ambiguous legacy mappings, non-donor roles, deleted accounts, and deactivation. */
-    private function donor(string $mobile): ?User
+    private function donor(string $identifier): ?User
     {
-        $matches = User::query()->whereHas('donorProfile', fn ($query) => $query->whereIn('mobile_number', DonorIdentity::variants($mobile)))->limit(2)->get();
+        $matches = str_contains($identifier, '@')
+            ? User::query()->whereRaw('LOWER(email) = ?', [$identifier])->limit(2)->get()
+            : User::query()->whereHas('donorProfile', fn ($query) => $query->whereIn('mobile_number', DonorIdentity::variants($identifier)))->limit(2)->get();
         $user = $matches->count() === 1 ? $matches->first() : null;
 
-        return $user?->isDonor() && ! $user->isDeactivated() ? $user : null;
+        return $user?->isDonor() && ! $user->isDeactivated() && $user->email_verified_at !== null
+            && filter_var($user->email, FILTER_VALIDATE_EMAIL) && $user->donorProfile()->exists() ? $user : null;
     }
 
     private function secret(#[\SensitiveParameter] string $code): string
@@ -69,21 +72,28 @@ class DonorLoginService
     }
 
     /** Generate the random code in the worker; queued payloads contain no plaintext OTP. */
-    public function deliver(string $id, string $mobile): void
+    public function deliver(string $id, string $identifier): void
     {
         try {
-            $candidate = $this->donor($mobile);
+            $candidate = $this->donor($identifier);
             if (! $candidate) {
                 return;
             }
-            $delivery = DB::transaction(function () use ($candidate, $id, $mobile): ?array {
+            $delivery = DB::transaction(function () use ($candidate, $id, $identifier): ?array {
                 $user = User::whereKey($candidate->id)->lockForUpdate()->first();
                 $row = DB::table('donor_login_codes')->where('request_id', $id)->lockForUpdate()->first();
-                if (! $user || ! $user->isDonor() || $user->isDeactivated() || $this->donor($mobile)?->id !== $user->id
-                    || ! $row || $row->mobile_hash !== hash('sha256', $mobile) || $row->used_at || $row->delivery_claimed_at
+                if (! $user || ! $user->isDonor() || $user->isDeactivated() || $this->donor($identifier)?->id !== $user->id
+                    || ! $row || $row->mobile_hash !== hash('sha256', $identifier) || $row->used_at || $row->delivery_claimed_at
                     || now()->greaterThanOrEqualTo($row->expires_at)) {
                     return null;
                 }
+                if (DB::table('donor_login_codes')->where('user_id', $user->id)
+                    ->where('delivery_claimed_at', '>', now()->subSeconds(self::RESEND_SECONDS))->exists()) {
+                    return null;
+                }
+                // Aliases cannot leave multiple usable challenges for the same account.
+                DB::table('donor_login_codes')->where('user_id', $user->id)->whereNull('used_at')
+                    ->where('request_id', '!=', $id)->update(['code_hash' => null, 'updated_at' => now()]);
                 $code = str_pad((string) random_int(0, 999999), 6, '0', STR_PAD_LEFT);
                 DB::table('donor_login_codes')->where('request_id', $id)->update([
                     'user_id' => $user->id, 'email_hash' => hash('sha256', $user->email),
@@ -121,13 +131,13 @@ class DonorLoginService
     }
 
     /** Consume once under donor-first locks; invalid attempt increments commit before returning the error. */
-    public function verify(string $mobile, #[\SensitiveParameter] string $code, ?User $confirmFor = null): array
+    public function verify(string $identifier, #[\SensitiveParameter] string $code, ?User $confirmFor = null): array
     {
-        $candidate = $this->donor($mobile);
-        $result = $candidate ? DB::transaction(function () use ($candidate, $mobile, $code, $confirmFor): ?array {
+        $candidate = $this->donor($identifier);
+        $result = $candidate ? DB::transaction(function () use ($candidate, $identifier, $code, $confirmFor): ?array {
             $user = User::whereKey($candidate->id)->lockForUpdate()->first();
-            $row = DB::table('donor_login_codes')->where('mobile_hash', hash('sha256', $mobile))->lockForUpdate()->first();
-            if (! $user || ! $user->isDonor() || $user->isDeactivated() || $this->donor($mobile)?->id !== $user->id
+            $row = DB::table('donor_login_codes')->where('mobile_hash', hash('sha256', $identifier))->lockForUpdate()->first();
+            if (! $user || ! $user->isDonor() || $user->isDeactivated() || $this->donor($identifier)?->id !== $user->id
                 || ! $row || $row->purpose !== 'donor_login' || $row->user_id !== $user->id || $row->used_at || ! $row->code_hash
                 || $row->email_hash !== hash('sha256', $user->email) || $row->attempt_count >= 5 || now()->greaterThanOrEqualTo($row->expires_at)) {
                 return null;
@@ -162,7 +172,9 @@ class DonorLoginService
     public function consumeEmailConfirmation(User $actor): void
     {
         $row = DB::table('donor_login_codes')->where('user_id', $actor->id)
-            ->where('confirmed_token_id', $actor->currentAccessToken()?->getKey())->lockForUpdate()->first();
+            ->where('confirmed_token_id', $actor->currentAccessToken()?->getKey())->whereNotNull('confirmed_at')
+            ->whereNull('confirmation_used_at')
+            ->orderByDesc('confirmed_at')->lockForUpdate()->first();
         if (! $actor->isDonor() || ! $row || ! $row->confirmed_at || $row->confirmation_used_at
             || $row->email_hash !== hash('sha256', $actor->email) || now()->subMinutes(10)->greaterThanOrEqualTo($row->confirmed_at)) {
             throw ValidationException::withMessages(['code' => 'Confirm your current email with a new login code before changing your email.']);

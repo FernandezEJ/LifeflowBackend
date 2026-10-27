@@ -40,7 +40,7 @@ class AppServiceProvider extends ServiceProvider
         RateLimiter::for('donor-login-request', fn (Request $request) => Limit::perMinute(5)->by('donor-login-request:'.$request->ip()));
         RateLimiter::for('donor-login-verify', fn (Request $request) => [
             Limit::perMinute(15)->by('donor-login-verify:'.$request->ip()),
-            Limit::perMinute(10)->by('donor-login-number:'.hash('sha256', DonorIdentity::mobile(is_string($request->input('mobile_number')) ? $request->input('mobile_number') : '')).':'.$request->ip()),
+            Limit::perMinute(10)->by('donor-login-identifier:'.hash('sha256', DonorIdentity::loginIdentifier(is_string($request->input('identifier', $request->input('mobile_number'))) ? $request->input('identifier', $request->input('mobile_number')) : '')).':'.$request->ip()),
         ]);
         RateLimiter::for('admin-login', fn (Request $request) => [
             Limit::perMinute(30)->by('admin-login-ip:'.$request->ip()),

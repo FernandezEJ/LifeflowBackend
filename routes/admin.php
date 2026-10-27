@@ -8,6 +8,8 @@ use App\Http\Controllers\Admin\Auth\AdminAuthController;
 use App\Http\Controllers\Admin\Auth\AdminPasswordResetController;
 use App\Http\Controllers\Admin\DashboardController;
 use App\Http\Controllers\Admin\DonorController;
+use App\Http\Controllers\Admin\EducationalArticleController;
+use App\Http\Controllers\Admin\PermanentPostController;
 use App\Http\Controllers\Admin\RewardClaimController;
 use App\Http\Controllers\Admin\RewardController;
 use App\Http\Controllers\Admin\SystemReportController;
@@ -26,6 +28,14 @@ Route::middleware(['auth:sanctum', 'admin.panel'])->group(function (): void {
 
     Route::middleware('admin.password-changed')->group(function (): void {
         Route::get('/dashboard', DashboardController::class);
+        Route::get('/educational-articles/categories', [EducationalArticleController::class, 'categories']);
+        Route::get('/educational-articles', [EducationalArticleController::class, 'index']);
+        Route::post('/educational-articles', [EducationalArticleController::class, 'store']);
+        Route::get('/educational-articles/{id}', [EducationalArticleController::class, 'show'])->whereNumber('id');
+        Route::put('/educational-articles/{id}', [EducationalArticleController::class, 'update'])->whereNumber('id');
+        Route::delete('/educational-articles/{id}', [EducationalArticleController::class, 'destroy'])->whereNumber('id');
+        Route::post('/educational-articles/{id}/publish', [EducationalArticleController::class, 'publish'])->whereNumber('id');
+        Route::post('/educational-articles/{id}/restore', [EducationalArticleController::class, 'restore'])->whereNumber('id');
         Route::get('/donors', [DonorController::class, 'index']);
         Route::get('/rewards/analytics', [RewardController::class, 'analytics']);
         Route::get('/rewards/redemptions', [RewardController::class, 'redemptions']);
@@ -44,6 +54,8 @@ Route::middleware(['auth:sanctum', 'admin.panel'])->group(function (): void {
         Route::post('/verifications/{participation}/needs-revision', [VerificationController::class, 'needsRevision'])->whereNumber('participation');
         Route::post('/verifications/{participation}/reject', [VerificationController::class, 'reject'])->whereNumber('participation');
         Route::get('/announcements', [AnnouncementController::class, 'index']);
+        Route::get('/permanent-post', [PermanentPostController::class, 'show']);
+        Route::put('/permanent-post', [PermanentPostController::class, 'update']);
         Route::post('/announcements', [AnnouncementController::class, 'store']);
         Route::get('/announcements/{announcement}', [AnnouncementController::class, 'show'])->whereNumber('announcement');
         Route::get('/announcements/{announcement}/participants', [AnnouncementController::class, 'participants'])->whereNumber('announcement');

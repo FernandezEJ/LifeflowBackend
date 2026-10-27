@@ -35,6 +35,7 @@ class NotificationTest extends TestCase
         $this->assertSame(':memory:', config('database.connections.sqlite.database'));
         $this->artisan('migrate')->assertExitCode(0);
         Http::preventStrayRequests();
+        config(['services.fcm.enabled' => false, 'services.fcm.project_id' => null, 'services.fcm.credentials' => null]);
         $this->realQueue = Queue::getFacadeRoot();
         Queue::fake();
     }
@@ -102,6 +103,93 @@ class NotificationTest extends TestCase
         $this->assertDatabaseCount('device_tokens', 1);
     }
 
+    #[DataProvider('transferOwners')]
+    public function test_older_login_cannot_reclaim_or_unregister_a_transferred_token(bool $sameOwner): void
+    {
+        $user = $this->signIn();
+        $oldLogin = $user->tokens()->firstOrFail();
+        $oldBearer = $this->defaultHeaders['Authorization'];
+        $payload = $this->tokenPayload('transferred');
+        $this->postJson('/api/device-tokens', $payload)->assertOk();
+
+        $this->app['auth']->forgetGuards();
+        $nextUser = $sameOwner ? $user : User::factory()->create();
+        $newLogin = $nextUser->createToken('new-login');
+        $this->withToken($newLogin->plainTextToken);
+        $this->postJson('/api/device-tokens', $payload)->assertOk();
+        $this->app['auth']->forgetGuards();
+        $this->withHeader('Authorization', $oldBearer);
+        $this->postJson('/api/device-tokens', $payload)->assertConflict();
+        $this->postJson('/api/device-tokens/unregister', ['token' => $payload['token']])->assertOk();
+        $this->assertSame($newLogin->accessToken->id, DeviceToken::firstOrFail()->personal_access_token_id);
+        $this->assertNotSame($oldLogin->id, DeviceToken::firstOrFail()->personal_access_token_id);
+        $this->assertSame($nextUser->id, DeviceToken::firstOrFail()->user_id);
+    }
+
+    public static function transferOwners(): array
+    {
+        return ['same-donor-new-login' => [true], 'different-donor' => [false]];
+    }
+
+    public function test_push_job_timeout_is_below_database_reservation_with_margin_and_single_attempt(): void
+    {
+        $job = new SendImportantPush(1);
+        $this->assertSame(60, $job->timeout);
+        $this->assertSame(1, $job->tries);
+        $this->assertGreaterThanOrEqual($job->timeout + 30, config('queue.connections.database.retry_after'));
+    }
+
+    #[DataProvider('deliveryFailures')]
+    public function test_failed_or_ambiguous_delivery_is_not_replayed_and_inbox_is_preserved(?int $status): void
+    {
+        $user = $this->signIn();
+        $this->postJson('/api/device-tokens', $this->tokenPayload('failure'))->assertOk();
+        $notice = $this->history($user, 'failure-kind');
+        config(['services.fcm.enabled' => true, 'services.fcm.project_id' => 'test-project', 'services.fcm.credentials' => __FILE__]);
+        $attempts = 0;
+        Http::fake(function () use (&$attempts, $status) {
+            $attempts++;
+
+            return $status === null ? Http::failedConnection() : Http::response([], $status);
+        });
+        $sender = $this->fakeSender();
+        (new SendImportantPush($notice->id))->handle($sender);
+        (new SendImportantPush($notice->id))->handle($sender);
+        $this->assertSame('failed', $notice->fresh()->push_status);
+        $this->assertNotNull($notice->fresh()->push_attempted_at);
+        $this->assertNull($notice->fresh()->read_at);
+        $this->assertDatabaseCount('device_tokens', 1);
+        $this->assertSame(1, $attempts);
+        $this->getJson('/api/notifications')->assertOk()->assertJsonPath('total', 1);
+        if ($status !== null) {
+            Http::assertSentCount(1);
+        }
+    }
+
+    public static function deliveryFailures(): array
+    {
+        return ['invalid-payload' => [400], 'unauthorized' => [401], 'forbidden' => [403],
+            'rate-limited' => [429], 'unavailable' => [503], 'ambiguous-network-failure' => [null]];
+    }
+
+    public function test_atomic_attempt_claim_blocks_a_second_worker_while_first_send_is_in_progress(): void
+    {
+        $user = $this->signIn();
+        $this->postJson('/api/device-tokens', $this->tokenPayload('overlap'))->assertOk();
+        $notice = $this->history($user, 'overlap');
+        config(['services.fcm.enabled' => true, 'services.fcm.project_id' => 'test-project', 'services.fcm.credentials' => __FILE__]);
+        $sender = $this->fakeSender();
+        Http::fake(function () use ($sender, $notice) {
+            $sender->send($notice->fresh());
+
+            return Http::response(['name' => 'test-message']);
+        });
+        $sender->send($notice);
+        Http::assertSentCount(1);
+        $this->assertSame('sent', $notice->fresh()->push_status);
+        $this->assertDatabaseCount('notifications', 1);
+    }
+
     // ========================================
     // PRIVATE HISTORY AND CONFIRMED READ STATE
     // Pagination, filtering and count never include another user's rows.
@@ -154,7 +242,7 @@ class NotificationTest extends TestCase
         Queue::assertPushed(SendImportantPush::class, 1);
         $notice = Notification::firstOrFail();
         $this->assertSame('donation_completed', $notice->type);
-        $this->assertSame('Your donation has been verified. 300 points were added.', $notice->message);
+        $this->assertSame('Donation verified; 300 points were added.', $notice->message);
         $this->assertSame($item->id, $notice->data['participation_id']);
 
         $rejected = $this->participation($user);
@@ -199,7 +287,7 @@ class NotificationTest extends TestCase
         $this->assertDatabaseCount('notifications', 1);
         $item->forceFill(['status' => 'needs_revision', 'revision_reason' => null])->save();
         $this->assertDatabaseCount('notifications', 2);
-        $this->assertSame('Please upload a corrected proof.', Notification::latest('id')->firstOrFail()->message);
+        $this->assertSame('Please update your donation proof.', Notification::latest('id')->firstOrFail()->message);
         $this->assertDatabaseCount('point_transactions', 0);
     }
 
@@ -217,10 +305,11 @@ class NotificationTest extends TestCase
             $this->assertSame('failed', $notice->fresh()->push_status);
             $this->assertNull($notice->fresh()->read_at);
             $this->assertStringContainsString('Private reason', $notice->message);
-            $this->assertLessThan(310, mb_strlen($notice->message));
+            $this->assertLessThanOrEqual(100, mb_strlen($notice->message));
         }
         Http::assertSentCount(2);
-        Http::assertSent(fn ($request) => $request['message']['notification']['body'] === 'Please open your activity to review your donation proof.');
+        Http::assertSent(fn ($request) => $request['message']['notification']['body'] === 'Your donation proof was rejected; check the reason.');
+        Http::assertSent(fn ($request) => $request['message']['notification']['body'] === 'Please update your donation proof.');
         foreach (Http::recorded() as [$request]) {
             $this->assertStringNotContainsString('Private reason', $request->body());
         }
@@ -375,6 +464,55 @@ class NotificationTest extends TestCase
         $this->assertDatabaseCount('point_transactions', 1);
         $this->assertSame(300, (int) $user->pointTransactions()->sum('amount'));
         $this->assertSame(4, $user->unreadNotifications()->count());
+        Http::assertNothingSent();
+    }
+
+    public function test_six_existing_categories_use_concise_copy_and_preserve_existing_history(): void
+    {
+        $user = User::factory()->create();
+        $legacy = $this->history($user, 'retained-before-branding');
+        $before = $legacy->refresh()->getAttributes();
+        $service = app(NotificationService::class);
+        foreach (['completed', 'rejected', 'needs_revision'] as $status) {
+            $item = $this->participation($user);
+            $item->forceFill(['status' => $status, 'rejection_reason' => 'Private note.', 'revision_reason' => 'Private note.'])->saveQuietly();
+            $service->notifyParticipationOutcome($item, $status === 'completed' ? 300 : null);
+            $service->notifyParticipationOutcome($item, $status === 'completed' ? 300 : null);
+        }
+        $opportunity = $this->opportunity();
+        $service->notifyImportantAnnouncement($opportunity, true);
+        $service->notifyImportantAnnouncement($opportunity, true);
+        $reminder = $this->participation($user);
+        $service->notifyDonationReminder($reminder);
+        $service->notifyDonationReminder($reminder);
+        $rest = $this->participation($user);
+        $rest->forceFill(['status' => 'completed'])->saveQuietly();
+        $metadata = ['last_completed_donation_at' => now()->subMonths(3)->toIso8601String(), 'next_eligible_donation_at' => now()->toIso8601String()];
+        $service->notifyDonationCooldownComplete($user, $rest, $metadata, 'copy:cooldown');
+        $service->notifyDonationCooldownComplete($user, $rest, $metadata, 'copy:cooldown');
+        $expected = [
+            'admin_announcement' => ['Important Announcement', 'A new LifeFlow announcement is available.'],
+            'donation_completed' => ['Donation Verified', 'Donation verified; 300 points were added.'],
+            'donation_rejected' => ['Proof Rejected', 'Your donation proof was rejected; check the reason. Private note.'],
+            'donation_needs_revision' => ['Proof Needs Revision', 'Please update your donation proof. Private note.'],
+            'donation_reminder' => ['Donation Tomorrow', 'Your joined donation activity is tomorrow.'],
+            'donation_cooldown_complete' => ['Donation Rest Complete', 'Your rest period is complete; take a self-assessment before donating.'],
+        ];
+        $this->assertSame(Notification::TYPES, array_keys($expected));
+        $notices = Notification::where('id', '!=', $legacy->id)->get()->keyBy('type');
+        $this->assertCount(6, $notices);
+        foreach ($expected as $type => [$title, $body]) {
+            $notice = $notices[$type];
+            $this->assertSame($title, $notice->title);
+            $this->assertSame($body, $notice->message);
+            $this->assertLessThanOrEqual(50, mb_strlen($notice->title));
+            $this->assertLessThanOrEqual(100, mb_strlen($notice->message));
+            $this->assertNull($notice->read_at);
+            $this->assertSame($user->id, $notice->user_id);
+        }
+        $this->assertSame($before, $legacy->fresh()->getAttributes());
+        $this->assertDatabaseCount('notifications', 7);
+        Queue::assertPushed(SendImportantPush::class, 6);
         Http::assertNothingSent();
     }
 

@@ -7,7 +7,7 @@ use Illuminate\Validation\ValidationException;
 /** Version 1 is a flat document of paragraphs/lists and bold/italic text only. */
 class AnnouncementContent
 {
-    public static function plainText(array $document): string
+    public static function plainText(array $document, bool $allowEmpty = false): string
     {
         $invalid = static function (): never {
             throw ValidationException::withMessages(['description_document' => 'Use paragraphs, bold, italic, and simple lists only (maximum 10,000 characters).']);
@@ -64,7 +64,7 @@ class AnnouncementContent
         }
         $text = implode("\n\n", $blocks);
         $visible = preg_replace('/[\s\x{200B}-\x{200D}\x{FEFF}]+/u', '', $contentText);
-        if (mb_strlen($text) > 10000 || $visible === '') {
+        if (mb_strlen($text) > 10000 || ($visible === '' && ! $allowEmpty)) {
             $invalid();
         }
 

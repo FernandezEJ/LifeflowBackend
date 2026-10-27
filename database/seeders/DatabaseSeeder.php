@@ -15,6 +15,7 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
+        $this->call(PermanentPostSeeder::class);
         // User::factory(10)->create();
 
         User::factory()->create([

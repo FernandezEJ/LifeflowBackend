@@ -3,6 +3,8 @@
 namespace App\Services;
 
 use App\Models\DonationOpportunity;
+use App\Models\EducationalArticle;
+use App\Models\PermanentPost;
 use App\Models\Reward;
 use App\Models\User;
 use Aws\CommandInterface;
@@ -18,7 +20,7 @@ class MediaStorage
 
     public function store(UploadedFile $image, string $collection): string
     {
-        abort_unless(in_array($collection, ['announcements', 'rewards'], true), 503, 'Invalid media collection.');
+        abort_unless(in_array($collection, ['announcements', 'rewards', 'education'], true), 503, 'Invalid media collection.');
         $disk = config('filesystems.media_disk', 'public');
         abort_unless(in_array($disk, ['public', 'r2_media'], true), 503, 'Media storage configuration is invalid.');
         if ($disk === 'r2_media') {
@@ -45,7 +47,7 @@ class MediaStorage
     public function discardNewUpload(string $reference): void
     {
         $r2 = $this->r2Key($reference);
-        if ($r2 === null && ! preg_match('~\A(?:announcements|rewards)/[a-f0-9-]{36}\.(?:png|jpe?g)\z~', $reference)) {
+        if ($r2 === null && ! preg_match('~\A(?:announcements|rewards|education)/[a-f0-9-]{36}\.(?:png|jpe?g)\z~', $reference)) {
             return;
         }
         try {
@@ -68,6 +70,51 @@ class MediaStorage
         }
 
         return $this->temporaryUrl($reference, 'announcements');
+    }
+
+    public function permanentPostUrl(PermanentPost $post): ?string
+    {
+        if (! $this->staffCanView() && ! $this->donorCanView()) {
+            return null;
+        }
+        $reference = $post->image_path;
+
+        return str_starts_with($reference ?? '', self::R2_PREFIX)
+            ? $this->temporaryUrl($reference, 'announcements')
+            : ($reference ? Storage::disk('public')->url($reference) : null);
+    }
+
+    public function educationalArticleUrl(EducationalArticle $article): ?string
+    {
+        $published = ! $article->trashed() && $article->status === 'published';
+        if (! $this->staffCanView() && ! ($this->donorCanView() && $published)) {
+            return null;
+        }
+        $reference = $article->image_path;
+
+        return str_starts_with($reference ?? '', self::R2_PREFIX)
+            ? $this->temporaryUrl($reference, 'education')
+            : ($reference ? Storage::disk('public')->url($reference) : null);
+    }
+
+    public function educationalImageExists(?string $reference): bool
+    {
+        if (! $reference) {
+            return false;
+        }
+        $key = $this->r2Key($reference);
+        if ($key !== null) {
+            if (! str_starts_with($key, 'education/') || ! $this->privateR2Configuration()) {
+                return false;
+            }
+        } elseif (! preg_match('~\Aeducation/[a-f0-9-]{36}\.(?:png|jpe?g)\z~', $reference)) {
+            return false;
+        }
+        try {
+            return Storage::disk($key === null ? 'public' : 'r2_media')->exists($key ?? $reference);
+        } catch (Throwable) {
+            abort(503, 'Unable to verify the cover image. Please try again.');
+        }
     }
 
     public function rewardUrl(Reward $reward, ?string $legacyUrl): ?string
@@ -117,7 +164,7 @@ class MediaStorage
 
     private function r2Key(string $reference): ?string
     {
-        return preg_match('~\Ar2_media:((?:announcements|rewards)/[a-f0-9-]{36}\.(?:png|jpe?g))\z~', $reference, $match) ? $match[1] : null;
+        return preg_match('~\Ar2_media:((?:announcements|rewards|education)/[a-f0-9-]{36}\.(?:png|jpe?g))\z~', $reference, $match) ? $match[1] : null;
     }
 
     private function staffCanView(): bool

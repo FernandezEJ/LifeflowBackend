@@ -18,6 +18,10 @@ class DonationOpportunity extends Model
 
     public function getImageUrlAttribute(): ?string
     {
+        if ($this->source_type === 'red_cross_dagupan') {
+            return PermanentPost::redCross()->image_url;
+        }
+
         return app(MediaStorage::class)->announcementUrl($this);
     }
 
@@ -66,10 +70,13 @@ class DonationOpportunity extends Model
     // Permanent system option metadata, not an admin announcement or a scheduled event.
     public static function redCrossDagupan(): array
     {
+        $post = PermanentPost::redCross();
+
         return [
             'id' => null, 'source_type' => 'red_cross_dagupan',
-            'title' => 'Philippine Red Cross ? Dagupan City Chapter',
-            'description' => 'Choose this option when you plan to donate through the Philippine Red Cross Dagupan City Chapter. Confirm donation arrangements with the chapter before visiting. Final donation eligibility is determined by the facility.',
+            'title' => $post->title, 'summary' => $post->summary,
+            'description' => $post->description, 'description_document' => $post->description_document,
+            'image_url' => $post->image_url,
             'location' => 'Dagupan City Chapter', 'event_date' => null,
             'start_time' => null, 'end_time' => null, 'points_reward' => 0,
             'published_at' => null, 'expires_at' => null, 'status' => 'available',

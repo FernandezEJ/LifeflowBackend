@@ -69,8 +69,11 @@ class PushNotificationService
                         ->post('https://fcm.googleapis.com/v1/projects/'.rawurlencode(config('services.fcm.project_id')).'/messages:send', [
                             'message' => [
                                 'token' => $device->token,
-                                'notification' => ['title' => $notification->title, 'body' => in_array($notification->type, ['donation_rejected', 'donation_needs_revision'], true)
-                                    ? 'Please open your activity to review your donation proof.' : $notification->message],
+                                'notification' => ['title' => $notification->title, 'body' => match ($notification->type) {
+                                    'donation_rejected' => 'Your donation proof was rejected; check the reason.',
+                                    'donation_needs_revision' => 'Please update your donation proof.',
+                                    default => $notification->message,
+                                }],
                                 'data' => [...$data, 'type' => $notification->type, 'notification_id' => (string) $notification->id,
                                     // Expo Android reads custom navigation data from the JSON body field.
                                     'body' => json_encode([...$data, 'type' => $notification->type, 'notification_id' => (string) $notification->id])],

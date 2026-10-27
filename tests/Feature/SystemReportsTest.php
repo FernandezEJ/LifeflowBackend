@@ -324,7 +324,7 @@ class SystemReportsTest extends TestCase
             $this->assertStringNotContainsString($private, $json);
         }
         $this->assertSame($before, array_map(fn ($table) => DB::table($table)->orderBy('id')->get()->toJson(), $tables));
-        $this->assertLessThanOrEqual(18, $queryCount, 'Report queries do not scale per donor or transaction.');
+        $this->assertLessThanOrEqual(19, $queryCount, 'Report queries include one permanent-post lookup, not one per donor or transaction.');
 
     }
 }

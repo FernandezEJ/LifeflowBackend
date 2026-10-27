@@ -11,16 +11,16 @@ class DonorLoginController extends Controller
 {
     public function requestCode(DonorLoginRequest $request, DonorLoginService $service): JsonResponse
     {
-        return response()->json($service->request($request->validated('mobile_number')), 202)->header('Cache-Control', 'no-store');
+        return response()->json($service->request($request->validated('identifier')), 202)->header('Cache-Control', 'no-store');
     }
 
     public function verify(DonorLoginRequest $request, DonorLoginService $service): JsonResponse
     {
-        return response()->json($service->verify($request->validated('mobile_number'), $request->validated('code')))->header('Cache-Control', 'no-store');
+        return response()->json($service->verify($request->validated('identifier'), $request->validated('code')))->header('Cache-Control', 'no-store');
     }
 
     public function confirmEmail(DonorLoginRequest $request, DonorLoginService $service): JsonResponse
     {
-        return response()->json($service->verify($request->validated('mobile_number'), $request->validated('code'), $request->user()))->header('Cache-Control', 'no-store');
+        return response()->json($service->verify($request->validated('identifier'), $request->validated('code'), $request->user()))->header('Cache-Control', 'no-store');
     }
 }

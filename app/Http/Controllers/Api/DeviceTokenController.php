@@ -29,12 +29,19 @@ class DeviceTokenController extends Controller
         DB::transaction(function () use ($request, $data, $session) {
             PersonalAccessToken::whereKey($session->id)->lockForUpdate()->firstOrFail();
             $hash = hash('sha256', $data['token']);
-            DeviceToken::where('personal_access_token_id', $session->id)->where('token_hash', '!=', $hash)->delete();
-            DeviceToken::upsert([[
-                ...$data, 'token_hash' => $hash, 'user_id' => $request->user()->id,
+            // Establish the unique row before locking it, including concurrent first registrations.
+            $device = DeviceToken::firstOrCreate(['token_hash' => $hash], [
+                ...$data, 'user_id' => $request->user()->id,
                 'personal_access_token_id' => $session->id, 'last_seen_at' => now(),
-                'created_at' => now(), 'updated_at' => now(),
-            ]], ['token_hash'], ['token', 'user_id', 'personal_access_token_id', 'platform', 'provider', 'last_seen_at', 'updated_at']);
+            ]);
+            $device = DeviceToken::whereKey($device->id)->lockForUpdate()->firstOrFail();
+            // A delayed request from an older login must not steal a transferred address.
+            abort_if($device->personal_access_token_id > $session->id, 409, 'Please sign in again before registering phone alerts.');
+            DeviceToken::where('personal_access_token_id', $session->id)->where('token_hash', '!=', $hash)->delete();
+            $device->fill([
+                ...$data, 'user_id' => $request->user()->id,
+                'personal_access_token_id' => $session->id, 'last_seen_at' => now(),
+            ])->save();
         });
 
         return response()->json(['registered' => true]);
@@ -48,7 +55,10 @@ class DeviceTokenController extends Controller
     {
         $this->only($request, ['token']);
         $data = $request->validate(['token' => ['required', 'string', 'max:4096']]);
-        $request->user()->deviceTokens()->where('token_hash', hash('sha256', $data['token']))->delete();
+        $session = $request->user()->currentAccessToken();
+        abort_unless($session instanceof PersonalAccessToken, 422, 'A mobile bearer session is required.');
+        $request->user()->deviceTokens()->where('personal_access_token_id', $session->id)
+            ->where('token_hash', hash('sha256', $data['token']))->delete();
 
         return response()->json(['removed' => true]);
     }

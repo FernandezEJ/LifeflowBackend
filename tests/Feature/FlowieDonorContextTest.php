@@ -7,6 +7,7 @@ use App\Models\DonationOpportunity;
 use App\Models\DonationParticipation;
 use App\Models\DonationRecord;
 use App\Models\FlowieConversation;
+use App\Models\PermanentPost;
 use App\Models\PointTransaction;
 use App\Models\User;
 use App\Services\DonationCooldown;
@@ -265,7 +266,7 @@ class FlowieDonorContextTest extends TestCase
         $context = $this->context($user);
 
         $this->assertSame($status, $context['active_participation_status']);
-        $this->assertSame('Philippine Red Cross ? Dagupan City Chapter', $context['active_participation_opportunity_title']);
+        $this->assertSame(PermanentPost::redCross()->title, $context['active_participation_opportunity_title']);
         $this->assertSame(0, $context['completed_donation_count']);
         $this->assertFalse($context['is_on_donation_cooldown']);
     }

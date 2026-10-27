@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Jobs\SendImportantPush;
 use App\Models\AuditLog;
 use App\Models\DonationParticipation;
+use App\Models\PermanentPost;
 use App\Models\PointTransaction;
 use App\Models\User;
 use App\Services\Admin\VerificationService;
@@ -71,7 +72,7 @@ class VerificationManagementTest extends TestCase
         $reviewer = $this->signIn(User::factory()->create(['role' => $role]));
         $this->getJson('/api/admin/verifications')->assertOk()->assertJsonPath('data.0.id', $item->id);
         $detail = $this->getJson('/api/admin/verifications/'.$item->id)->assertOk()->assertJsonPath('verification.donor.id', $donor->id)
-            ->assertJsonPath('verification.opportunity.title', 'Philippine Red Cross ? Dagupan City Chapter');
+            ->assertJsonPath('verification.opportunity.title', PermanentPost::redCross()->title);
         $this->assertStringNotContainsString($item->proof_path, $detail->getContent());
         $this->get('/api/admin/verifications/'.$item->id.'/proof')->assertOk()->assertHeader('Content-Type', 'image/png')
             ->assertHeader('Cache-Control', 'no-store, private')->assertHeader('X-Content-Type-Options', 'nosniff');

@@ -26,8 +26,8 @@ class NotificationService
         }
         $completed = $participation->status === 'completed';
         $revision = $participation->status === 'needs_revision';
-        $reason = Str::limit(Str::squish((string) ($revision ? $participation->revision_reason : $participation->rejection_reason)), 240);
-        $reviewMessage = $revision ? 'Please upload a corrected proof.' : 'Please open your activity to review your donation proof.';
+        $reason = Str::limit(Str::squish((string) ($revision ? $participation->revision_reason : $participation->rejection_reason)), 40);
+        $reviewMessage = $revision ? 'Please update your donation proof.' : 'Your donation proof was rejected; check the reason.';
         if ($reason !== '') {
             $reviewMessage .= ' '.$reason;
         }
@@ -39,8 +39,8 @@ class NotificationService
 
         return $this->createImportant($participation->user_id,
             $completed ? 'donation_completed' : ($revision ? 'donation_needs_revision' : 'donation_rejected'),
-            $completed ? 'Donation verified' : ($revision ? 'Donation proof needs revision' : 'Donation proof needs attention'),
-            $completed ? ($pointsAwarded !== null ? 'Your donation has been verified. '.$pointsAwarded.' points were added.' : 'Your donation has been verified successfully.') : $reviewMessage,
+            $completed ? 'Donation Verified' : ($revision ? 'Proof Needs Revision' : 'Proof Rejected'),
+            $completed ? ($pointsAwarded !== null ? 'Donation verified; '.$pointsAwarded.' points were added.' : 'Your donation has been verified.') : $reviewMessage,
             ['participation_id' => $participation->id, 'opportunity_id' => $participation->donation_opportunity_id, 'points_awarded' => $completed ? $pointsAwarded : null],
             $eventKey);
     }
@@ -57,8 +57,8 @@ class NotificationService
         }
         User::query()->where('role', 'donor')->select('id')->chunkById(200, function ($users) use ($opportunity) {
             foreach ($users as $user) {
-                $this->createImportant($user->id, 'admin_announcement', 'Important donation announcement',
-                    'A new important donation opportunity is available. Open LifeFlow for details.',
+                $this->createImportant($user->id, 'admin_announcement', 'Important Announcement',
+                    'A new LifeFlow announcement is available.',
                     ['opportunity_id' => $opportunity->id], 'opportunity:'.$opportunity->id.':important');
             }
         });
@@ -73,8 +73,8 @@ class NotificationService
     {
         $date = $participation->opportunity->event_date->toDateString();
 
-        return $this->createImportant($participation->user_id, 'donation_reminder', 'Your donation is tomorrow',
-            'Rest well, eat properly, and stay hydrated. Open your activity for details.',
+        return $this->createImportant($participation->user_id, 'donation_reminder', 'Donation Tomorrow',
+            'Your joined donation activity is tomorrow.',
             ['participation_id' => $participation->id, 'opportunity_id' => $participation->donation_opportunity_id,
                 'event_date' => $date, 'reminder_date' => DonationReminderService::calendarNow()->toDateString()],
             'participation:'.$participation->id.':reminder:'.$date);
@@ -82,8 +82,8 @@ class NotificationService
 
     public function notifyDonationCooldownComplete(User $user, DonationParticipation|DonationRecord $item, array $metadata, string $eventKey): Notification
     {
-        return $this->createImportant($user->id, 'donation_cooldown_complete', 'You can donate again!',
-            'Your 3-month donation rest period is complete. You may now complete a Self-Assessment and join an available donation opportunity.',
+        return $this->createImportant($user->id, 'donation_cooldown_complete', 'Donation Rest Complete',
+            'Your rest period is complete; take a self-assessment before donating.',
             ['participation_id' => $item instanceof DonationParticipation ? $item->id : $item->donation_participation_id,
                 'last_completed_donation_at' => $metadata['last_completed_donation_at'],
                 'next_eligible_donation_at' => $metadata['next_eligible_donation_at']], $eventKey);

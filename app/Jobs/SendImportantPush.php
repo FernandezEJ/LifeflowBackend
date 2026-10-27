@@ -18,7 +18,8 @@ class SendImportantPush implements ShouldQueue
     // ========================================
     public int $tries = 1;
 
-    public int $timeout = 120;
+    // Keep below the database queue's 90-second retry_after (30-second margin).
+    public int $timeout = 60;
 
     public function __construct(public int $notificationId) {}
 

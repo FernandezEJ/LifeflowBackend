@@ -4,6 +4,14 @@ namespace App\Services;
 
 class DonorIdentity
 {
+    /** Login aliases share normalization without changing registration or stored values. */
+    public static function loginIdentifier(string $value): string
+    {
+        $value = trim($value);
+
+        return str_contains($value, '@') ? strtolower($value) : self::mobile($value);
+    }
+
     /** One canonical number for registration, profile edits, and passwordless lookup. */
     public static function mobile(string $value): string
     {

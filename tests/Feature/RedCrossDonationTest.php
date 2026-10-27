@@ -51,7 +51,7 @@ class RedCrossDonationTest extends TestCase
         $this->getJson('/api/donation-opportunities')->assertOk()->assertJsonCount(0, 'data');
         $this->getJson('/api/donation-opportunities/red-cross-dagupan')->assertOk()
             ->assertJsonPath('opportunity.source_type', 'red_cross_dagupan')
-            ->assertJsonPath('opportunity.title', 'Philippine Red Cross ? Dagupan City Chapter')
+            ->assertJsonPath('opportunity.title', 'Philippine Red Cross – Dagupan City Chapter')
             ->assertJsonPath('opportunity.event_date', null);
         $this->getJson('/api/donation-opportunities/unknown-red-cross')->assertNotFound();
         $admin = $this->admin();
@@ -80,7 +80,7 @@ class RedCrossDonationTest extends TestCase
         $this->getJson('/api/points/summary')->assertJsonPath('current_balance', 300);
         $this->assertDatabaseCount('point_transactions', 1);
         $this->assertDatabaseCount('notifications', 1);
-        $this->assertDatabaseHas('notifications', ['user_id' => $this->donor->id, 'message' => 'Your donation has been verified. 300 points were added.']);
+        $this->assertDatabaseHas('notifications', ['user_id' => $this->donor->id, 'message' => 'Donation verified; 300 points were added.']);
         Queue::assertPushed(SendImportantPush::class, 1);
         $this->getJson('/api/donation-participations/'.$id)->assertJsonPath('participation.status', 'completed');
         $this->assertDatabaseCount('donation_records', 0);

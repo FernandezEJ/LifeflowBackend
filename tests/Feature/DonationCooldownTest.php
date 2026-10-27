@@ -228,7 +228,7 @@ class DonationCooldownTest extends TestCase
         $this->travelTo(CarbonImmutable::parse('2027-01-01T10:00:00+08:00'));
         $this->artisan('donations:notify-cooldown-complete')->expectsOutput('Created 1 donation rest period notification(s).')->assertExitCode(0);
         $notice = Notification::where('type', 'donation_cooldown_complete')->sole();
-        $this->assertSame('You can donate again!', $notice->title);
+        $this->assertSame('Donation Rest Complete', $notice->title);
         $this->assertSame('2027-01-01T10:00:00+08:00', $notice->data['next_eligible_donation_at']);
         $this->getJson('/api/notifications')->assertOk()->assertJsonPath('data.0.type', 'donation_cooldown_complete');
         $this->artisan('donations:notify-cooldown-complete')->expectsOutput('Created 0 donation rest period notification(s).')->assertExitCode(0);
