@@ -270,8 +270,9 @@ class AdminManagementTest extends TestCase
         $response = $this->postJson('/api/admin/admins/'.$admin->id.'/send-password-reset')->assertAccepted()
             ->assertExactJson(['message' => PasswordResetService::NOTICE]);
         Queue::assertPushed(SendPasswordResetCode::class);
-        $row = DB::table('password_reset_codes')->where('email_hash', hash('sha256', strtolower($admin->email)))->first();
-        app(PasswordResetService::class)->deliver(strtolower($admin->email), $row->request_id);
+        Queue::assertPushed(SendPasswordResetCode::class, fn ($job) => $job->staffOnly);
+        $row = DB::table('password_reset_codes')->where('email_hash', hash('sha256', 'admin-password-reset:'.strtolower($admin->email)))->first();
+        app(PasswordResetService::class)->deliver(strtolower($admin->email), $row->request_id, true);
         Mail::assertSent(PasswordResetCodeMail::class, fn ($mail) => $mail->hasTo($admin->email));
         $code = Mail::sent(PasswordResetCodeMail::class)->first()->code;
         $this->assertStringNotContainsString($code, $response->getContent());
@@ -291,7 +292,7 @@ class AdminManagementTest extends TestCase
         $row = DB::table('password_reset_codes')->first();
         $admin->forceFill(['deactivated_at' => now()])->save();
         $this->postJson('/api/admin/admins/'.$admin->id.'/send-password-reset')->assertConflict();
-        app(PasswordResetService::class)->deliver(strtolower($admin->email), $row->request_id);
+        app(PasswordResetService::class)->deliver(strtolower($admin->email), $row->request_id, true);
 
         Mail::assertNothingSent();
         $this->assertNotNull(DB::table('password_reset_codes')->first()->used_at);

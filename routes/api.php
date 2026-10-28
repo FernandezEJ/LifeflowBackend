@@ -27,7 +27,6 @@ Route::post('/register', [RegistrationVerificationController::class, 'requestCod
 Route::post('/register/request-verification', [RegistrationVerificationController::class, 'requestCode'])->middleware('throttle:registration-request');
 Route::post('/register/verify-email', [RegistrationVerificationController::class, 'verify'])->middleware('throttle:registration-verify');
 Route::post('/register/resend-verification', [RegistrationVerificationController::class, 'resend'])->middleware('throttle:registration-request');
-Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:login');
 // Donor passwordless authentication is separate from Admin email/password routes.
 Route::post('/auth/request-login-code', [DonorLoginController::class, 'requestCode'])->middleware('throttle:donor-login-request');
 Route::post('/auth/verify-login-code', [DonorLoginController::class, 'verify'])->middleware('throttle:donor-login-verify');
@@ -41,9 +40,9 @@ Route::post('/forgot-password/reset', [PasswordResetController::class, 'reset'])
 // DONOR SUBMISSION, HISTORY, AND SUMMARY
 // No donor route can approve, reject, or modify a submitted donation record.
 // ========================================
-Route::middleware('auth:sanctum')->group(function () {
-    Route::get('/educational-articles', [EducationalArticleController::class, 'index'])->middleware(EnsureDonorUser::class.':Educational Content');
-    Route::get('/educational-articles/{id}', [EducationalArticleController::class, 'show'])->whereNumber('id')->middleware(EnsureDonorUser::class.':Educational Content');
+Route::middleware(['auth:sanctum', EnsureDonorUser::class])->group(function () {
+    Route::get('/educational-articles', [EducationalArticleController::class, 'index']);
+    Route::get('/educational-articles/{id}', [EducationalArticleController::class, 'show'])->whereNumber('id');
     // Manual donor creation is retired; records remain read-only historical outcomes.
     Route::get('/donation-records', [DonationRecordController::class, 'index']);
     Route::get('/donation-records/{id}', [DonationRecordController::class, 'show'])->whereNumber('id');
@@ -54,7 +53,7 @@ Route::middleware('auth:sanctum')->group(function () {
 // OPPORTUNITIES AND DONOR PARTICIPATION
 // No route permits donor verification or points awards.
 // ========================================
-Route::middleware('auth:sanctum')->group(function () {
+Route::middleware(['auth:sanctum', EnsureDonorUser::class])->group(function () {
     Route::get('/donation-opportunities', [DonationParticipationController::class, 'opportunities']);
     Route::get('/announcements', [DonationParticipationController::class, 'opportunities']);
     Route::get('/announcements/{id}', [DonationParticipationController::class, 'opportunity'])->whereNumber('id');
@@ -71,7 +70,7 @@ Route::middleware('auth:sanctum')->group(function () {
 // PROTECTED PRE-SCREENING ROUTES
 // All assessment writes and reads belong to the current Sanctum token owner.
 // ========================================
-Route::middleware('auth:sanctum')->group(function () {
+Route::middleware(['auth:sanctum', EnsureDonorUser::class])->group(function () {
     Route::post('/eligibility-assessments', [EligibilityAssessmentController::class, 'store']);
     Route::get('/eligibility-assessments/latest', [EligibilityAssessmentController::class, 'latest']);
     Route::get('/eligibility-assessments', [EligibilityAssessmentController::class, 'index']);
@@ -90,7 +89,7 @@ Route::middleware('auth:sanctum')->group(function () {
 // PROTECTED DONOR PROFILE ROUTES
 // Uses the authenticated token to access only the current donor's data.
 // ========================================
-Route::middleware('auth:sanctum')->group(function () {
+Route::middleware(['auth:sanctum', EnsureDonorUser::class])->group(function () {
     Route::get('/donor-profile', [DonorProfileController::class, 'show']);
     Route::put('/donor-profile/avatar', [DonorProfileController::class, 'avatar'])->middleware('throttle:30,1');
     Route::put('/donor-profile', [DonorProfileController::class, 'update']);
@@ -100,12 +99,12 @@ Route::middleware('auth:sanctum')->group(function () {
 // PRIVATE INBOX AND DEVICE REGISTRATION
 // Every endpoint is scoped to Sanctum; numeric IDs cannot select an owner.
 // ========================================
-Route::middleware('auth:sanctum')->group(function () {
+Route::middleware(['auth:sanctum', EnsureDonorUser::class])->group(function () {
     Route::get('/notifications', [NotificationController::class, 'index']);
-    Route::get('/notifications/{id}/announcement', [NotificationController::class, 'announcement'])->whereNumber('id')->middleware(EnsureDonorUser::class.':Announcement history');
-    Route::get('/notifications/reminders', [NotificationController::class, 'reminders'])->middleware(EnsureDonorUser::class.':Donation preparation');
-    Route::get('/notifications/{id}/preparation', [NotificationController::class, 'preparation'])->whereNumber('id')->middleware(EnsureDonorUser::class.':Donation preparation');
-    Route::post('/notifications/{id}/preparation-acknowledgement', [NotificationController::class, 'acknowledgePreparation'])->whereNumber('id')->middleware([EnsureDonorUser::class.':Donation preparation', 'throttle:30,1']);
+    Route::get('/notifications/{id}/announcement', [NotificationController::class, 'announcement'])->whereNumber('id');
+    Route::get('/notifications/reminders', [NotificationController::class, 'reminders']);
+    Route::get('/notifications/{id}/preparation', [NotificationController::class, 'preparation'])->whereNumber('id');
+    Route::post('/notifications/{id}/preparation-acknowledgement', [NotificationController::class, 'acknowledgePreparation'])->whereNumber('id')->middleware('throttle:30,1');
     Route::get('/notifications/unread-count', [NotificationController::class, 'unreadCount']);
     Route::post('/notifications/read-all', [NotificationController::class, 'readAll']);
     Route::post('/notifications/{id}/read', [NotificationController::class, 'read'])->whereNumber('id');
@@ -129,7 +128,7 @@ Route::middleware(['auth:sanctum', EnsureDonorUser::class.':Rewards'])->group(fu
     Route::post('/vouchers/{id}/activate', [$controller, 'activate'])->whereNumber('id')->middleware('throttle:30,1');
 });
 
-Route::middleware(['auth:sanctum', 'throttle:10,1'])->group(function () {
+Route::middleware(['auth:sanctum', EnsureDonorUser::class, 'throttle:10,1'])->group(function () {
     Route::post('/profile/change-email/confirm-login', [DonorLoginController::class, 'confirmEmail'])->middleware('throttle:donor-login-verify');
     Route::post('/profile/change-email/request', [AccountSettingsController::class, 'requestCode']);
     Route::post('/profile/change-email/resend', [AccountSettingsController::class, 'resend']);

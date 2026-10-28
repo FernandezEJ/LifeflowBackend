@@ -46,6 +46,7 @@ class DonationParticipationController extends Controller
 
         return DB::transaction(function () use ($request, $id, $redCross) {
             $user = $request->user()->newQuery()->lockForUpdate()->findOrFail($request->user()->id);
+            abort_unless($user->isActiveVerifiedDonor(), 403, 'Access denied.');
             // One active activity across both sources; use the same donor lock as assessments.
             $active = $user->donationParticipations()->active()
                 ->orderByDesc('joined_at')->orderByDesc('id')->lockForUpdate()->first();
@@ -127,7 +128,9 @@ class DonationParticipationController extends Controller
         $this->only($request, []);
 
         return DB::transaction(function () use ($request, $id) {
-            $item = $request->user()->donationParticipations()->lockForUpdate()->findOrFail($id);
+            $user = $request->user()->newQuery()->lockForUpdate()->findOrFail($request->user()->id);
+            abort_unless($user->isActiveVerifiedDonor(), 403, 'Access denied.');
+            $item = $user->donationParticipations()->lockForUpdate()->findOrFail($id);
             abort_unless($item->status === 'pending', 409, 'Only pending participation can be cancelled.');
             $item->status = 'cancelled';
             $item->cancelled_at = now();
@@ -145,7 +148,9 @@ class DonationParticipationController extends Controller
         $item = null;
         try {
             return DB::transaction(function () use ($request, $id, $proof, &$path, &$item) {
-                $item = $request->user()->donationParticipations()->lockForUpdate()->findOrFail($id);
+                $user = $request->user()->newQuery()->lockForUpdate()->findOrFail($request->user()->id);
+                abort_unless($user->isActiveVerifiedDonor(), 403, 'Access denied.');
+                $item = $user->donationParticipations()->lockForUpdate()->findOrFail($id);
                 abort_unless(in_array($item->status, ['pending', 'needs_revision'], true), 409, 'Only pending or needs-revision participation accepts proof.');
                 $request->validate(['proof' => ['required', 'file', 'mimetypes:image/jpeg,image/png,application/pdf', 'max:5120']]);
                 $file = $request->file('proof');

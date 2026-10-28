@@ -16,7 +16,7 @@ class FlowieConversationService
     private function owner(User $actor): User
     {
         $user = User::whereKey($actor->id)->lockForUpdate()->firstOrFail();
-        abort_unless($user->isDonor() && ! $user->isDeactivated(), 403, 'Only active donors may use Flowie.');
+        abort_unless($user->isActiveVerifiedDonor(), 403, 'Access denied.');
         $tokenId = $actor->currentAccessToken()?->getKey();
         $token = $tokenId ? $user->tokens()->find($tokenId) : null;
         abort_unless($token && (! $token->expires_at || $token->expires_at->isFuture()), 401, 'Please log in again.');

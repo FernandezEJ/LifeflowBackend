@@ -54,7 +54,7 @@ class AnnouncementRichTextTest extends TestCase
     public function test_rich_draft_edit_publish_and_donor_read_preserve_format_and_plain_previews(string $role): void
     {
         $this->signIn($role);
-        User::factory()->create(['role' => 'donor']);
+        $donor = User::factory()->create(['role' => 'donor']);
         $doc = $this->document();
         $text = "Please join\n\n• Bring ID\n• Rest well\n\n1. Register\n2. Donate";
         $id = $this->postJson('/api/admin/announcements', $this->payload(['description_document' => $doc]))->assertCreated()
@@ -64,8 +64,8 @@ class AnnouncementRichTextTest extends TestCase
         $this->post('/api/admin/announcements/'.$id, $this->payload(['_method' => 'PUT', 'description_document' => json_encode($doc)]), ['Accept' => 'application/json'])
             ->assertOk()->assertJsonPath('announcement.description_document', $doc);
         $this->postJson('/api/admin/announcements/'.$id.'/publish')->assertOk();
-        $this->getJson('/api/announcements')->assertOk()->assertJsonPath('data.0.description_document', $doc);
-        $this->getJson('/api/announcements/'.$id)->assertOk()->assertJsonPath('opportunity.description_document', $doc)
+        $this->getAsDonor($donor, '/api/announcements')->assertOk()->assertJsonPath('data.0.description_document', $doc);
+        $this->getAsDonor($donor, '/api/announcements/'.$id)->assertOk()->assertJsonPath('opportunity.description_document', $doc)
             ->assertJsonPath('opportunity.description', str_replace('Please', 'Kindly', $text));
         $stored = json_decode(DB::table('donation_opportunities')->find($id)->description_document, true);
         $this->assertSame($doc, $stored);

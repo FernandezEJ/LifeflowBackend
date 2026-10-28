@@ -96,7 +96,7 @@ class AdminManagementService
     {
         $this->mutate($actor, $id, 'admin_password_reset_requested', function (User $admin): void {
             abort_if($admin->isDeactivated(), 409, 'Reactivate the Admin before requesting a password reset.');
-            app(PasswordResetService::class)->requestCode(strtolower($admin->email));
+            app(PasswordResetService::class)->requestCode(strtolower($admin->email), true);
         });
     }
 

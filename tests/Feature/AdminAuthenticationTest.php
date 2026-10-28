@@ -108,7 +108,7 @@ class AdminAuthenticationTest extends TestCase
     public function test_donor_mobile_token_cannot_access_admin_routes_but_keeps_mobile_access(): void
     {
         $donor = User::factory()->create(['password' => 'test-password']);
-        $login = $this->postJson('/api/login', ['email' => $donor->email, 'password' => 'test-password'])->assertOk();
+        $login = $this->loginVerifiedDonor($donor)->assertOk();
         $token = $login->json('token');
 
         $this->withToken($token)->getJson('/api/admin/me')->assertForbidden();
@@ -219,7 +219,7 @@ class AdminAuthenticationTest extends TestCase
         $this->postJson('/api/admin/login', ['email' => ' DONOR@example.test ', 'password' => 'test-password'])
             ->assertTooManyRequests()->assertHeader('Retry-After');
 
-        $this->postJson('/api/login', ['email' => $donor->email, 'password' => 'test-password'])->assertOk();
+        $this->loginVerifiedDonor($donor)->assertOk();
         $this->assertDatabaseCount('personal_access_tokens', 1);
         $this->travel(61)->seconds();
         $this->postJson('/api/admin/login', ['email' => $donor->email, 'password' => 'test-password'])->assertUnauthorized();

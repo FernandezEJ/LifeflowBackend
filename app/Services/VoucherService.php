@@ -20,7 +20,7 @@ class VoucherService
         try {
             return DB::transaction(function () use ($userId, $id): UserVoucher {
                 $owner = User::whereKey($userId)->lockForUpdate()->firstOrFail();
-                abort_unless($owner->isDonor() && ! $owner->isDeactivated(), 403, 'Only active donors may use Rewards.');
+                abort_unless($owner->isActiveVerifiedDonor(), 403, 'Access denied.');
                 $voucher = UserVoucher::where('user_id', $userId)->whereKey($id)->lockForUpdate()->firstOrFail();
                 if ($voucher->claimed_at !== null || $voucher->status === 'redeemed') {
                     return $voucher;

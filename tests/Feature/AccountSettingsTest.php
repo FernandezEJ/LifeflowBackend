@@ -217,9 +217,10 @@ class AccountSettingsTest extends TestCase
         $this->app['auth']->forgetGuards();
         $this->withToken($this->token)->getJson('/api/user')->assertOk();
         $this->app['auth']->forgetGuards();
-        $this->postJson('/api/login', ['email' => 'old@example.test', 'password' => 'password123'])->assertUnauthorized();
+        $this->postJson('/api/login', ['email' => 'old@example.test', 'password' => 'password123'])->assertNotFound();
         $this->app['auth']->forgetGuards();
-        $this->postJson('/api/login', ['email' => 'old@example.test', 'password' => 'newPassword123'])->assertOk();
+        $this->postJson('/api/login', ['email' => 'old@example.test', 'password' => 'newPassword123'])->assertNotFound();
+        $this->loginVerifiedDonor($this->donor->fresh())->assertOk()->assertJsonStructure(['token']);
     }
 
     public function test_password_change_cleans_other_devices_and_existing_reset_authorization(): void

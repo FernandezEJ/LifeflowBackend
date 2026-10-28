@@ -30,7 +30,8 @@ class EligibilityCooldown
     public function submit(User $user, array $answers): array
     {
         return DB::transaction(function () use ($user, $answers) {
-            User::query()->whereKey($user->id)->lockForUpdate()->firstOrFail();
+            $user = User::query()->whereKey($user->id)->lockForUpdate()->firstOrFail();
+            abort_unless($user->isActiveVerifiedDonor(), 403, 'Access denied.');
             $latest = $user->eligibilityAssessments()
                 ->orderByDesc('assessed_at')->orderByDesc('id')->lockForUpdate()->first();
             $metadata = $this->metadata($latest);

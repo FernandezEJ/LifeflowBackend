@@ -24,6 +24,12 @@ class PasswordResetService
 
     public const RESEND_SECONDS = 60;
 
+    private function eligible(?User $user, bool $staffOnly): bool
+    {
+        return $user !== null && ! $user->isDeactivated() && ! $user->trashed()
+            && ($staffOnly ? $user->isAdminPanelUser() : $user->isActiveVerifiedDonor());
+    }
+
     private function emailHash(string $email, bool $staffOnly = false): string
     {
         return hash('sha256', ($staffOnly ? 'admin-password-reset:' : '').$email);
@@ -74,7 +80,7 @@ class PasswordResetService
                     || $row->code_hash || now()->greaterThanOrEqualTo($row->expires_at)) {
                     return null;
                 }
-                if (! $user || ($user->isAdminPanelUser() && $user->isDeactivated()) || ($staffOnly && ! $user->isAdminPanelUser())) {
+                if (! $this->eligible($user, $staffOnly)) {
                     DB::table('password_reset_codes')->where('request_id', $requestId)
                         ->update(['used_at' => now(), 'updated_at' => now()]);
 
@@ -131,17 +137,15 @@ class PasswordResetService
     public function verify(string $email, #[\SensitiveParameter] string $code, bool $staffOnly = false): string
     {
         $token = DB::transaction(function () use ($email, $code, $staffOnly): ?string {
+            $user = User::whereRaw('LOWER(email) = ?', [$email])->lockForUpdate()->first();
             $row = DB::table('password_reset_codes')->where('email_hash', $this->emailHash($email, $staffOnly))
                 ->lockForUpdate()->first();
             if (! $row || $row->used_at || $row->verified_at || ! $row->code_hash
                 || $row->attempt_count >= 5 || now()->greaterThanOrEqualTo($row->expires_at)) {
                 return null;
             }
-            if ($staffOnly) {
-                $user = User::find($row->user_id);
-                if (! $user || ! $user->isAdminPanelUser() || $user->isDeactivated()) {
-                    return null;
-                }
+            if (! $this->eligible($user, $staffOnly) || $row->user_id !== $user->id) {
+                return null;
             }
             if (! Hash::check($this->codeSecret($code), $row->code_hash)) {
                 DB::table('password_reset_codes')->where('email_hash', $row->email_hash)->update([
@@ -174,7 +178,7 @@ class PasswordResetService
             $user = User::whereRaw('LOWER(email) = ?', [$email])->lockForUpdate()->first();
             $row = DB::table('password_reset_codes')->where('email_hash', $this->emailHash($email, $staffOnly))
                 ->lockForUpdate()->first();
-            if (! $user || ($user->isAdminPanelUser() && $user->isDeactivated()) || ($staffOnly && ! $user->isAdminPanelUser()) || ! $row || $row->user_id !== $user->id || $row->used_at
+            if (! $this->eligible($user, $staffOnly) || ! $row || $row->user_id !== $user->id || $row->used_at
                 || ! $row->verified_at || ! $row->reset_token_hash || ! $row->reset_token_expires_at
                 || now()->greaterThanOrEqualTo($row->reset_token_expires_at)
                 || ! hash_equals($row->reset_token_hash, hash('sha256', $token))) {
@@ -188,6 +192,13 @@ class PasswordResetService
             $user->tokens()->delete();
             DB::table('sessions')->where('user_id', $user->id)->delete();
             DB::table('password_reset_tokens')->where('email', $user->email)->delete();
+
+            if ($staffOnly) {
+                $user->auditLogs()->create([
+                    'actor_role' => $user->role, 'action' => 'admin_password_reset', 'module' => 'admin_accounts',
+                    'target_type' => 'user', 'target_id' => $user->id,
+                ]);
+            }
 
             return true;
         }, 3);

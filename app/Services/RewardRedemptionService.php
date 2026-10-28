@@ -23,7 +23,7 @@ class RewardRedemptionService
     {
         return DB::transaction(function () use ($userId, $rewardId, $requestKey, $variantId) {
             $owner = User::whereKey($userId)->lockForUpdate()->firstOrFail();
-            abort_unless($owner->isDonor() && ! $owner->isDeactivated(), 403, 'Only active donors may redeem rewards.');
+            abort_unless($owner->isActiveVerifiedDonor(), 403, 'Access denied.');
             $existing = UserVoucher::where('user_id', $userId)->where('redemption_key', $requestKey)->lockForUpdate()->first();
             if ($existing) {
                 if ($existing->reward_id !== $rewardId || $existing->reward_variant_id !== $variantId) {

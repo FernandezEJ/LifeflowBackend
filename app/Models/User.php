@@ -34,6 +34,12 @@ class User extends Authenticatable
         return $this->role === UserRole::Donor;
     }
 
+    public function isActiveVerifiedDonor(): bool
+    {
+        return $this->isDonor() && ! $this->isDeactivated() && ! $this->trashed()
+            && $this->email_verified_at !== null;
+    }
+
     public function isAdmin(): bool
     {
         return $this->role === UserRole::Admin;

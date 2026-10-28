@@ -10,6 +10,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
+use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 use Throwable;
 
 class DonorProfileController extends Controller
@@ -43,6 +44,7 @@ class DonorProfileController extends Controller
         try {
             return DB::transaction(function () use ($request, $validated) {
                 $user = $request->user()->newQuery()->lockForUpdate()->findOrFail($request->user()->id);
+                abort_unless($user->isActiveVerifiedDonor(), 403, 'Access denied.');
                 $profile = $user->donorProfile()->lockForUpdate()->first();
 
                 if (! $profile) {
@@ -60,6 +62,8 @@ class DonorProfileController extends Controller
                     'donor_profile' => $profile,
                 ]);
             });
+        } catch (HttpExceptionInterface $exception) {
+            throw $exception;
         } catch (Throwable $exception) {
             // ========================================
             // SAFE UPDATE FAILURE
@@ -80,6 +84,7 @@ class DonorProfileController extends Controller
     {
         return DB::transaction(function () use ($request): JsonResponse {
             $user = $request->user()->newQuery()->lockForUpdate()->findOrFail($request->user()->id);
+            abort_unless($user->isActiveVerifiedDonor(), 403, 'Access denied.');
             $profile = $user->donorProfile()->lockForUpdate()->first();
             if (! $profile) {
                 return response()->json(['message' => 'Donor profile not found.'], 404);

@@ -22,6 +22,7 @@ class AccountSettingsService
     private function owner(User $actor): User
     {
         $user = User::whereKey($actor->id)->lockForUpdate()->firstOrFail();
+        abort_unless($user->isActiveVerifiedDonor(), 403, 'Access denied.');
         $id = $actor->currentAccessToken()?->getKey();
         $session = $id ? $user->tokens()->whereKey($id)->first() : null;
         abort_unless($session && (! $session->expires_at || $session->expires_at->isFuture()), 401, 'Please log in again.');
@@ -142,7 +143,7 @@ class AccountSettingsService
                     return null;
                 }
                 $user = User::find($row->user_id);
-                if (! $user || ! hash_equals($row->credential_hash, hash('sha256', $user->password))
+                if (! $user?->isActiveVerifiedDonor() || ! hash_equals($row->credential_hash, hash('sha256', $user->password))
                     || ! hash_equals($row->original_email_hash, hash('sha256', $user->email))) {
                     return null;
                 }

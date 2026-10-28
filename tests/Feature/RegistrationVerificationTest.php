@@ -95,7 +95,7 @@ class RegistrationVerificationTest extends TestCase
         $this->assertDatabaseCount('personal_access_tokens', 1);
         $this->assertNull($this->pending($token)->payload);
         $this->assertNull($this->pending($token)->password_hash);
-        $this->postJson('/api/login', ['email' => 'new@example.com', 'password' => 'password123'])->assertOk();
+        $this->loginVerifiedDonor(User::firstOrFail())->assertOk()->assertJsonStructure(['token']);
     }
 
     public function test_wrong_attempts_commit_and_fifth_blocks_correct_code(): void
@@ -167,12 +167,13 @@ class RegistrationVerificationTest extends TestCase
         $this->assertDatabaseCount('donor_profiles', 1);
     }
 
-    public function test_existing_email_and_mobile_are_rejected_and_old_accounts_remain_usable(): void
+    public function test_existing_unverified_account_is_preserved_without_password_login_access(): void
     {
         $user = User::factory()->create(['email' => 'new@example.com', 'password' => 'old-password', 'email_verified_at' => null]);
         $before = $user->fresh()->getAttributes();
         $this->postJson('/api/register/request-verification', $this->data())->assertUnprocessable()->assertJsonValidationErrors('email');
-        $this->postJson('/api/login', ['email' => $user->email, 'password' => 'old-password'])->assertOk();
+        $this->postJson('/api/login', ['email' => $user->email, 'password' => 'old-password'])->assertNotFound()->assertJsonMissingPath('token');
+        $this->assertDatabaseCount('personal_access_tokens', 0);
         $this->assertSame($before, $user->fresh()->getAttributes());
     }
 

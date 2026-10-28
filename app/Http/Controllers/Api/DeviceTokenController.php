@@ -27,6 +27,8 @@ class DeviceTokenController extends Controller
         $session = $request->user()->currentAccessToken();
         abort_unless($session instanceof PersonalAccessToken, 422, 'A mobile bearer session is required.');
         DB::transaction(function () use ($request, $data, $session) {
+            $user = $request->user()->newQuery()->whereKey($request->user()->id)->lockForUpdate()->firstOrFail();
+            abort_unless($user->isActiveVerifiedDonor(), 403, 'Access denied.');
             PersonalAccessToken::whereKey($session->id)->lockForUpdate()->firstOrFail();
             $hash = hash('sha256', $data['token']);
             // Establish the unique row before locking it, including concurrent first registrations.

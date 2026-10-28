@@ -50,8 +50,7 @@ class DonorProfileTest extends TestCase
         $this->withToken($token)->getJson('/api/donor-profile')->assertOk()
             ->assertJsonPath('user.id', $user->id);
         $this->app['auth']->forgetGuards();
-        $this->postJson('/api/login', ['email' => 'juan@example.com', 'password' => 'password123'])
-            ->assertOk()->assertJsonStructure(['token']);
+        $this->loginVerifiedDonor($user)->assertOk()->assertJsonStructure(['token']);
         $this->app['auth']->forgetGuards();
         $this->withToken($token)->postJson('/api/logout')->assertOk();
         $this->app['auth']->forgetGuards();

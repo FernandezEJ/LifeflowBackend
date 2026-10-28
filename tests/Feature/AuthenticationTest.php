@@ -78,13 +78,11 @@ class AuthenticationTest extends TestCase
     // SUCCESSFUL LOGIN
     // Returns a working token while keeping passwords and remember tokens private.
     // ========================================
-    public function test_login_returns_a_usable_token_without_sensitive_fields(): void
+    public function test_otp_login_returns_a_usable_token_without_sensitive_fields(): void
     {
         $user = User::factory()->create(['email' => 'testdonor@example.com', 'password' => 'password123']);
-        $response = $this->postJson('/api/login', [
-            'email' => $user->email, 'password' => 'password123',
-        ]);
-        $response->assertOk()->assertJsonPath('message', 'Login successful')
+        $response = $this->loginVerifiedDonor($user);
+        $response->assertOk()
             ->assertJsonPath('user.id', $user->id)->assertJsonStructure(['token'])
             ->assertJsonMissingPath('user.password')->assertJsonMissingPath('user.remember_token');
         $this->assertStringNotContainsString($user->password, $response->getContent());
@@ -94,29 +92,28 @@ class AuthenticationTest extends TestCase
     }
 
     // ========================================
-    // FAILED LOGIN
-    // Wrong passwords and unknown accounts receive the same JSON error and no token.
+    // RETIRED PASSWORD LOGIN
+    // Wrong passwords and unknown accounts cannot reach a token-issuing endpoint.
     // ========================================
     public function test_incorrect_credentials_are_rejected(): void
     {
         $user = User::factory()->create();
         foreach ([$user->email, 'unknown@example.com'] as $email) {
             $this->postJson('/api/login', ['email' => $email, 'password' => 'incorrect'])
-                ->assertUnauthorized()->assertExactJson(['message' => 'Invalid email or password.']);
+                ->assertNotFound()->assertJsonMissingPath('token');
         }
         $this->assertDatabaseCount('personal_access_tokens', 0);
     }
 
     // ========================================
-    // LOGIN VALIDATION
-    // Missing or malformed credentials return Laravel validation errors.
+    // RETIRED LOGIN INPUTS
+    // Missing or malformed credentials cannot reach a legacy validation/login path.
     // ========================================
-    public function test_login_requires_valid_fields(): void
+    public function test_retired_login_is_unavailable_with_missing_or_malformed_fields(): void
     {
-        $this->postJson('/api/login', [])->assertUnprocessable()
-            ->assertJsonValidationErrors(['email', 'password']);
+        $this->postJson('/api/login', [])->assertNotFound()->assertJsonMissingPath('token');
         $this->postJson('/api/login', ['email' => 'invalid', 'password' => 'password123'])
-            ->assertUnprocessable()->assertJsonValidationErrors('email');
+            ->assertNotFound()->assertJsonMissingPath('token');
     }
 
     // ========================================
@@ -171,33 +168,33 @@ class AuthenticationTest extends TestCase
     // SAMPLE REGISTRATION DATA
     // Reuses the requested test account only inside the isolated test database.
     // ========================================
-    public function test_login_is_rate_limited_without_issuing_a_token_and_recovers(): void
+    public function test_retired_login_never_recovers_password_authentication_after_cooldown(): void
     {
         $user = User::factory()->create(['email' => 'limited@example.com', 'password' => 'password123']);
         for ($attempt = 0; $attempt < 5; $attempt++) {
-            $this->postJson('/api/login', ['email' => $user->email, 'password' => 'incorrect'])->assertUnauthorized();
+            $this->postJson('/api/login', ['email' => $user->email, 'password' => 'incorrect'])->assertNotFound();
         }
         $this->postJson('/api/login', ['email' => strtoupper($user->email), 'password' => 'password123'])
-            ->assertTooManyRequests()->assertHeader('Retry-After');
+            ->assertNotFound()->assertJsonMissingPath('token');
         $this->assertDatabaseCount('personal_access_tokens', 0);
         $this->travel(61)->seconds();
-        $this->postJson('/api/login', ['email' => $user->email, 'password' => 'password123'])->assertOk();
-        $this->assertDatabaseCount('personal_access_tokens', 1);
+        $this->postJson('/api/login', ['email' => $user->email, 'password' => 'password123'])->assertNotFound();
+        $this->assertDatabaseCount('personal_access_tokens', 0);
     }
 
-    public function test_login_ip_limit_cannot_be_bypassed_by_rotating_email_addresses(): void
+    public function test_rotating_email_addresses_cannot_reach_retired_password_login(): void
     {
         for ($attempt = 0; $attempt < 30; $attempt++) {
-            $this->postJson('/api/login', ['email' => 'unknown'.$attempt.'@example.com', 'password' => 'incorrect'])->assertUnauthorized();
+            $this->postJson('/api/login', ['email' => 'unknown'.$attempt.'@example.com', 'password' => 'incorrect'])->assertNotFound();
         }
-        $this->postJson('/api/login', ['email' => 'another@example.com', 'password' => 'incorrect'])->assertTooManyRequests();
+        $this->postJson('/api/login', ['email' => 'another@example.com', 'password' => 'incorrect'])->assertNotFound();
         $this->assertDatabaseCount('personal_access_tokens', 0);
     }
 
     public function test_login_rejects_non_string_email_without_server_error(): void
     {
         $this->postJson('/api/login', ['email' => ['unexpected'], 'password' => 'incorrect'])
-            ->assertUnprocessable()->assertJsonValidationErrors('email');
+            ->assertNotFound()->assertJsonMissingPath('token');
     }
 
     private function registrationData(): array

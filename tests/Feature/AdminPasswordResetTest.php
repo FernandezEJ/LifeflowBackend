@@ -165,8 +165,9 @@ class AdminPasswordResetTest extends TestCase
         $service->requestCode($user->email);
         $generic = DB::table('password_reset_codes')->where('email_hash', hash('sha256', $user->email))->first();
         $service->deliver($user->email, $generic->request_id);
-        $genericCode = Mail::sent(PasswordResetCodeMail::class)->last()->code;
-        $genericToken = $service->verify($user->email, $genericCode);
+        Mail::assertNothingSent();
+        $this->postJson('/api/forgot-password/verify', ['email' => $user->email, 'code' => '123456'])->assertUnprocessable();
+        $genericToken = str_repeat('a', 64);
         $this->postJson('/api/admin/forgot-password/reset', $this->body($user, $genericToken))->assertUnprocessable();
         $token = $this->authorization($user);
         $this->postJson('/api/forgot-password/reset', $this->body($user, $token))->assertUnprocessable();

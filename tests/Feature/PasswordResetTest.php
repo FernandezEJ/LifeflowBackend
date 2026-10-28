@@ -257,8 +257,9 @@ class PasswordResetTest extends TestCase
             $this->app['auth']->forgetGuards();
             $this->withToken($oldToken->plainTextToken)->getJson('/api/user')->assertUnauthorized();
         }
-        $this->postJson('/api/login', ['email' => $user->email, 'password' => 'original-password'])->assertUnauthorized();
-        $this->postJson('/api/login', ['email' => $user->email, 'password' => 'new-password-123'])->assertOk()->assertJsonStructure(['token']);
+        $this->postJson('/api/login', ['email' => $user->email, 'password' => 'original-password'])->assertNotFound();
+        $this->postJson('/api/login', ['email' => $user->email, 'password' => 'new-password-123'])->assertNotFound();
+        $this->loginVerifiedDonor($user->fresh())->assertOk()->assertJsonStructure(['token']);
         $this->postJson('/api/forgot-password/reset', $this->resetBody($user, $token))->assertUnprocessable();
         $this->assertNotNull($this->row($user->email)->used_at);
         $this->assertNull($this->row($user->email)->reset_token_hash);

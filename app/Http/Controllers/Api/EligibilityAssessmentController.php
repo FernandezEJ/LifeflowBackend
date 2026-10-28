@@ -8,6 +8,7 @@ use App\Services\DonationCooldown;
 use App\Services\EligibilityCooldown;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 use Throwable;
 
 class EligibilityAssessmentController extends Controller
@@ -30,6 +31,8 @@ class EligibilityAssessmentController extends Controller
                 ...$result,
                 ...($created ? [] : ['latest_assessment' => $result['assessment']]),
             ], $created ? 201 : 409);
+        } catch (HttpExceptionInterface $exception) {
+            throw $exception;
         } catch (Throwable $exception) {
             report($exception);
 

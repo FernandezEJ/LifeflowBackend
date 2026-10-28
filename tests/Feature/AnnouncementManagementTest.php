@@ -54,23 +54,25 @@ class AnnouncementManagementTest extends TestCase
         $actor = $this->signIn($role);
         $id = $this->postJson('/api/admin/announcements', $this->payload())->assertCreated()
             ->assertJsonPath('announcement.status', 'draft')->json('announcement.id');
-        $this->getJson('/api/announcements')->assertJsonCount(0, 'data');
-        $this->getJson('/api/announcements/'.$id)->assertNotFound();
+        $donor = User::factory()->create();
+        $this->getAsDonor($donor, '/api/announcements')->assertOk()->assertJsonCount(0, 'data');
+        $this->getAsDonor($donor, '/api/announcements/'.$id)->assertNotFound();
         $this->putJson('/api/admin/announcements/'.$id, $this->payload(['title' => 'Edited drive']))->assertOk()->assertJsonPath('announcement.title', 'Edited drive');
         $this->postJson('/api/admin/announcements/'.$id.'/publish')->assertOk()->assertJsonPath('announcement.status', 'active');
-        $this->getJson('/api/announcements')->assertJsonCount(1, 'data')->assertJsonPath('data.0.source_type', 'admin_announcement');
+        $this->getAsDonor($donor, '/api/announcements')->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.source_type', 'admin_announcement');
         $this->postJson('/api/admin/announcements/'.$id.'/draft')->assertOk()->assertJsonPath('announcement.status', 'draft');
         $this->deleteJson('/api/admin/announcements/'.$id)->assertOk()->assertJsonPath('announcement.status', 'deleted');
         $this->assertSoftDeleted('donation_opportunities', ['id' => $id]);
-        $this->getJson('/api/announcements/'.$id)->assertNotFound();
+        $this->getAsDonor($donor, '/api/announcements/'.$id)->assertNotFound();
         $this->postJson('/api/admin/announcements/'.$id.'/publish')->assertNotFound();
         $this->postJson('/api/admin/announcements/'.$id.'/restore')->assertOk()->assertJsonPath('announcement.status', 'draft')->assertJsonPath('announcement.published_at', null);
-        $this->getJson('/api/announcements')->assertJsonCount(0, 'data');
+        $this->getAsDonor($donor, '/api/announcements')->assertOk()->assertJsonCount(0, 'data');
         $this->getJson('/api/admin/announcements/'.$id)->assertOk()->assertJsonPath('announcement.title', 'Edited drive');
         $this->assertDatabaseHas('donation_opportunities', ['id' => $id, 'created_by' => $actor->id, 'deleted_at' => null]);
         $this->assertSame(['announcement_created', 'announcement_updated', 'announcement_published', 'announcement_moved_to_draft', 'announcement_deleted', 'announcement_restored'], AuditLog::orderBy('id')->pluck('action')->all());
         $this->assertSame(0, AuditLog::whereNotNull('details')->count());
-        Queue::assertNothingPushed();
+        Queue::assertPushed(SendImportantPush::class, 1);
+        $this->assertDatabaseHas('notifications', ['user_id' => $donor->id, 'type' => 'admin_announcement']);
     }
 
     public static function deniedRoles(): array
@@ -107,11 +109,11 @@ class AnnouncementManagementTest extends TestCase
         $this->assertDatabaseCount('notifications', 1);
         $this->assertDatabaseHas('notifications', ['user_id' => $donor->id, 'type' => 'admin_announcement']);
         Queue::assertPushed(SendImportantPush::class, 1);
-        $this->getJson('/api/announcements/'.$id)->assertOk()->assertJsonPath('opportunity.donation_date', '2026-10-01');
+        $this->getAsDonor($donor, '/api/announcements/'.$id)->assertOk()->assertJsonPath('opportunity.donation_date', '2026-10-01');
         $this->travelTo('2026-10-01 16:00:00');
-        $this->getJson('/api/announcements')->assertJsonCount(0, 'data');
+        $this->getAsDonor($donor, '/api/announcements')->assertOk()->assertJsonCount(0, 'data');
         $this->getJson('/api/admin/announcements?status=expired')->assertJsonPath('data.0.id', $id);
-        $this->getJson('/api/donation-opportunities/red-cross-dagupan')->assertOk()->assertJsonPath('opportunity.source_type', 'red_cross_dagupan');
+        $this->getAsDonor($donor, '/api/donation-opportunities/red-cross-dagupan')->assertOk()->assertJsonPath('opportunity.source_type', 'red_cross_dagupan');
     }
 
     public function test_push_dispatch_failure_does_not_undo_publishing(): void
