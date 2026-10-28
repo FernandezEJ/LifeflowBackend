@@ -8,6 +8,7 @@ use App\Services\DonationCooldown;
 use App\Services\EligibilityCooldown;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 use Throwable;
 
@@ -34,7 +35,8 @@ class EligibilityAssessmentController extends Controller
         } catch (HttpExceptionInterface $exception) {
             throw $exception;
         } catch (Throwable $exception) {
-            report($exception);
+            // Do not forward assessment answers, SQL bindings or exception chains to reporters.
+            Log::error('Eligibility assessment save failed.', ['exception_class' => $exception::class]);
 
             return response()->json(['message' => 'Pre-screening could not be saved. Please try again.'], 500);
         }

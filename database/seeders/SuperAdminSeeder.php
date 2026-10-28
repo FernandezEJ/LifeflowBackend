@@ -16,6 +16,11 @@ class SuperAdminSeeder extends Seeder
      */
     public function run(): void
     {
+        // Production staff bootstrap requires a separate owner-approved process, never this development seeder.
+        if (! app()->environment(['local', 'testing'])) {
+            throw new RuntimeException('Staff seeding is restricted to local and testing environments.');
+        }
+
         $name = config('admin.super_admin.name');
         $email = config('admin.super_admin.email');
         $password = config('admin.super_admin.password');

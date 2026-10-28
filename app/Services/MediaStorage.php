@@ -150,16 +150,28 @@ class MediaStorage
         if ($key === null || ! str_starts_with($key, $collection.'/') || ! $this->privateR2Configuration()) {
             return null;
         }
+        // Caller visibility/ownership checks remain outside this memo; never share URLs between requests.
+        $request = request();
+        $cache = $request->attributes->get('_lifeflow_media_urls', []);
+        if (array_key_exists($reference, $cache) && $cache[$reference]['expires_at'] > now()->getTimestamp()) {
+            return $cache[$reference]['url'];
+        }
+        $url = null;
+        $expiry = now()->addMinutes(15);
         try {
             $disk = Storage::disk('r2_media');
-            if (! $disk->exists($key)) {
-                return null;
+            if ($disk->exists($key)) {
+                $url = $disk->temporaryUrl($key, $expiry, ['ResponseCacheControl' => 'private, no-store']);
             }
-
-            return $disk->temporaryUrl($key, now()->addMinutes(15), ['ResponseCacheControl' => 'private, no-store']);
         } catch (Throwable) {
-            return null;
+            // Keep the existing null-on-storage-failure contract without caching provider exceptions.
         }
+        if (count($cache) < 256 || array_key_exists($reference, $cache)) {
+            $cache[$reference] = ['url' => $url, 'expires_at' => $expiry->getTimestamp()];
+            $request->attributes->set('_lifeflow_media_urls', $cache);
+        }
+
+        return $url;
     }
 
     private function r2Key(string $reference): ?string

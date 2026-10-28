@@ -10,6 +10,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 use Throwable;
 
@@ -69,7 +70,8 @@ class DonorProfileController extends Controller
             // SAFE UPDATE FAILURE
             // Leaves both records unchanged and keeps internal errors out of JSON.
             // ========================================
-            report($exception);
+            // Exception messages/SQL bindings can contain donor details. Keep only the failure category.
+            Log::error('Donor profile update failed.', ['exception_class' => $exception::class]);
 
             return response()->json(['message' => 'Profile could not be updated. Please try again.'], 500);
         }

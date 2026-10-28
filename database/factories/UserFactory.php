@@ -6,6 +6,7 @@ use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
+use RuntimeException;
 
 /**
  * @extends Factory<User>
@@ -24,6 +25,10 @@ class UserFactory extends Factory
      */
     public function definition(): array
     {
+        if (! app()->environment(['local', 'testing'])) {
+            throw new RuntimeException('Synthetic user factories are restricted to local and testing environments.');
+        }
+
         return [
             'name' => fake()->name(),
             'email' => fake()->unique()->safeEmail(),
