@@ -25,7 +25,7 @@ class RegistrationVerificationService
 {
     public const TERMS_VERSION = '1.0';
 
-    public const PRIVACY_VERSION = '1.0';
+    public const PRIVACY_VERSION = '1.1';
 
     public const CONSENT_FIELDS = ['accepted_terms', 'acknowledged_privacy', 'acknowledged_prescreening'];
 
@@ -37,8 +37,8 @@ class RegistrationVerificationService
                 throw ValidationException::withMessages([$pending ? 'pending_token' : $field => 'Return to registration and accept the required Terms, Privacy and pre-screening acknowledgements.']);
             }
         }
-        if ($pending && (($data['terms_version'] ?? null) !== self::TERMS_VERSION || ($data['privacy_version'] ?? null) !== self::PRIVACY_VERSION)) {
-            throw ValidationException::withMessages(['pending_token' => 'Please review the current Terms and Privacy Policy in registration.']);
+        if (($data['privacy_version'] ?? null) !== self::PRIVACY_VERSION || ($pending && ($data['terms_version'] ?? null) !== self::TERMS_VERSION)) {
+            throw ValidationException::withMessages([$pending ? 'pending_token' : 'privacy_version' => 'Update LifeFlow and review the current Privacy Policy in registration.']);
         }
     }
 

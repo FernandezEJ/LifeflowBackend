@@ -62,7 +62,7 @@ class DonorPasswordlessTest extends TestCase
 
     private function registration(array $changes = []): array
     {
-        return array_replace(['first_name' => 'New', 'middle_name' => null, 'last_name' => 'Donor', 'email' => 'new@example.test', 'mobile_number' => '09181112222', 'birth_date' => '2008-10-01', 'gender' => 'Male', 'blood_type' => 'O+', 'accepted_terms' => true, 'acknowledged_privacy' => true, 'acknowledged_prescreening' => true], $changes);
+        return array_replace(['first_name' => 'New', 'middle_name' => null, 'last_name' => 'Donor', 'email' => 'new@example.test', 'mobile_number' => '09181112222', 'birth_date' => '2008-10-01', 'gender' => 'Male', 'blood_type' => 'O+', 'accepted_terms' => true, 'acknowledged_privacy' => true, 'acknowledged_prescreening' => true, 'privacy_version' => '1.1'], $changes);
     }
 
     public function test_generic_request_secure_storage_queue_and_real_one_time_session(): void

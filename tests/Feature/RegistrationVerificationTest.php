@@ -35,7 +35,7 @@ class RegistrationVerificationTest extends TestCase
     {
         return array_replace(['first_name' => 'Test', 'middle_name' => null, 'last_name' => 'Donor', 'email' => 'new@example.com',
             'mobile_number' => '09171234567', 'birth_date' => '2004-09-13', 'gender' => 'Female', 'blood_type' => 'O+',
-            'password' => 'password123', 'accepted_terms' => true, 'acknowledged_privacy' => true, 'acknowledged_prescreening' => true,
+            'password' => 'password123', 'accepted_terms' => true, 'acknowledged_privacy' => true, 'acknowledged_prescreening' => true, 'privacy_version' => '1.1',
             'password_confirmation' => 'password123'], $changes);
     }
 
@@ -306,7 +306,7 @@ class RegistrationVerificationTest extends TestCase
         $this->assertSame(1, $row->acknowledged_privacy);
         $this->assertSame(1, $row->acknowledged_prescreening);
         $this->assertSame('1.0', $row->terms_version);
-        $this->assertSame('1.0', $row->privacy_version);
+        $this->assertSame('1.1', $row->privacy_version);
         $this->assertSame(now()->toDateTimeString(), $row->accepted_at);
         $this->verify($token, $code)->assertUnprocessable();
         $this->assertDatabaseCount('user_consents', 1);
@@ -338,5 +338,52 @@ class RegistrationVerificationTest extends TestCase
         Mail::assertSentCount(1);
         $this->assertDatabaseCount('users', 0);
         $this->assertDatabaseCount('user_consents', 0);
+    }
+
+    public function test_registration_requires_the_explicit_current_privacy_notice_version(): void
+    {
+        foreach ([null, '', '1.0', '2.0', 1.1] as $index => $version) {
+            $this->withServerVariables(['REMOTE_ADDR' => '192.0.2.'.(120 + $index)]);
+            $payload = $this->data(['privacy_version' => $version]);
+            if ($version === null) {
+                unset($payload['privacy_version']);
+            }
+            $this->postJson('/api/register/request-verification', $payload)->assertUnprocessable()->assertJsonValidationErrors('privacy_version');
+        }
+        $this->assertDatabaseCount('pending_registrations', 0);
+        $this->assertDatabaseCount('user_consents', 0);
+        Queue::assertNothingPushed();
+        Mail::assertNothingSent();
+    }
+
+    public function test_old_pending_notice_cannot_be_relabelled_as_current_during_verify_resend_or_delivery(): void
+    {
+        [$token, $code] = $this->start();
+        $row = $this->pending($token);
+        $data = json_decode(Crypt::decryptString($row->payload), true);
+        $data['privacy_version'] = '1.0';
+        DB::table('pending_registrations')->where('pending_token_hash', hash('sha256', $token))->update([
+            'payload' => Crypt::encryptString(json_encode($data)), 'delivery_claimed_at' => null,
+        ]);
+        $this->verify($token, $code)->assertUnprocessable()->assertJsonValidationErrors('pending_token');
+        $this->travel(60)->seconds();
+        $this->postJson('/api/register/resend-verification', ['pending_token' => $token])->assertUnprocessable()->assertJsonValidationErrors('pending_token');
+        app(RegistrationVerificationService::class)->deliver($row->request_id);
+        Mail::assertSentCount(1);
+        $this->assertDatabaseCount('users', 0);
+        $this->assertDatabaseCount('user_consents', 0);
+        $this->assertSame('1.0', json_decode(Crypt::decryptString($this->pending($token)->payload), true)['privacy_version']);
+    }
+
+    public function test_existing_donor_keeps_original_consent_and_otp_login_after_notice_update(): void
+    {
+        $owner = User::factory()->create();
+        DB::table('user_consents')->insert(['user_id' => $owner->id, 'accepted_terms' => true, 'acknowledged_privacy' => true,
+            'acknowledged_prescreening' => true, 'terms_version' => '1.0', 'privacy_version' => '1.0',
+            'accepted_at' => now()->subDay()]);
+        $before = DB::table('user_consents')->first();
+        $this->loginVerifiedDonor($owner)->assertOk();
+        $this->assertEquals($before, DB::table('user_consents')->first());
+        $this->assertDatabaseCount('user_consents', 1);
     }
 }

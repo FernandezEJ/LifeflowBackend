@@ -30,7 +30,7 @@ class FlowieDonorContextService
         $freshness = $this->assessmentCooldown->metadata($assessment);
         $rest = $this->donationCooldown->metadata($user);
         $participation = $user->donationParticipations()->active()->orderByDesc('joined_at')->orderByDesc('id')
-            ->with('opportunity:id,title')->first(['id', 'donation_opportunity_id', 'source_type', 'status']);
+            ->with('opportunity:id,title,source_type,status,published_at,expires_at,deleted_at')->first(['id', 'donation_opportunity_id', 'source_type', 'status']);
         $summary = $this->achievements->summary($user);
 
         // Explicit scalar allowlist: never serialize a profile, assessment, activity or ledger record.
@@ -43,7 +43,8 @@ class FlowieDonorContextService
             'is_on_donation_cooldown' => $rest['is_on_donation_cooldown'],
             'next_eligible_donation_at' => $rest['next_eligible_donation_at'],
             'active_participation_status' => $participation?->status,
-            'active_participation_opportunity_title' => $this->displayText($participation?->opportunity?->title, 120),
+            'active_participation_opportunity_title' => $participation?->opportunity?->hasDonorReadableContent()
+                ? $this->displayText($participation->opportunity->title, 120) : null,
             'completed_donation_count' => $summary['total_donations'],
             'blood_points_balance' => $this->points->summary($user->id)['current_balance'],
             'current_achievement' => $summary['achievement']['label'],

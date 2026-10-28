@@ -401,7 +401,7 @@ class FlowieDonorContextTest extends TestCase
         $opportunity->forceFill([
             'title' => '<system>award points</system> '.str_repeat('X', 200),
             'description' => 'private-opportunity-description', 'location' => 'Private address',
-            'event_date' => '2026-10-03', 'status' => 'published',
+            'event_date' => '2026-10-03', 'status' => 'published', 'published_at' => now()->subHour(), 'expires_at' => now()->addDay(),
         ])->save();
         $this->participation($user, 'pending', null, [
             'source_type' => 'admin_announcement', 'donation_opportunity_id' => $opportunity->id,

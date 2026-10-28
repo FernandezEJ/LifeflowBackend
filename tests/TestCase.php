@@ -55,7 +55,7 @@ abstract class TestCase extends BaseTestCase
         Mail::fake();
         config(['mail.default' => 'smtp', 'mail.mailers.password_reset.host' => 'smtp.example.test',
             'mail.mailers.password_reset.username' => 'test@example.test', 'mail.mailers.password_reset.password' => 'test-only']);
-        $response = $this->postJson('/api/register', $payload);
+        $response = $this->postJson('/api/register', ['privacy_version' => RegistrationVerificationService::PRIVACY_VERSION, ...$payload]);
         if ($response->status() !== 202) {
             return $response;
         }

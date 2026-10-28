@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\DonationOpportunity;
+use App\Models\DonationParticipation;
 use App\Services\DonationCooldown;
 use App\Services\EligibilityCooldown;
 use App\Services\PrivateDonationProof;
@@ -95,7 +96,7 @@ class DonationParticipationController extends Controller
             $participation->joined_at = now();
             $participation->save();
 
-            return response()->json(['participation' => $participation->load('opportunity')], 201);
+            return response()->json(['participation' => $participation->load('opportunity')->donorView()], 201)->header('Cache-Control', 'private, no-store');
         }, 3);
     }
 
@@ -111,12 +112,13 @@ class DonationParticipationController extends Controller
             $query->where('status', $input['status']);
         }
 
-        return response()->json($query->orderByDesc('joined_at')->orderByDesc('id')->paginate(20));
+        return response()->json($query->orderByDesc('joined_at')->orderByDesc('id')->paginate(20)
+            ->through(fn (DonationParticipation $item): array => $item->donorView()))->header('Cache-Control', 'private, no-store');
     }
 
     public function show(Request $request, int $id)
     {
-        return response()->json(['participation' => $request->user()->donationParticipations()->with('opportunity')->findOrFail($id)]);
+        return response()->json(['participation' => $request->user()->donationParticipations()->with('opportunity')->findOrFail($id)->donorView()])->header('Cache-Control', 'private, no-store');
     }
 
     // ========================================
@@ -136,7 +138,7 @@ class DonationParticipationController extends Controller
             $item->cancelled_at = now();
             $item->save();
 
-            return response()->json(['participation' => $item->load('opportunity')]);
+            return response()->json(['participation' => $item->load('opportunity')->donorView()])->header('Cache-Control', 'private, no-store');
         });
     }
 
@@ -167,7 +169,7 @@ class DonationParticipationController extends Controller
                 $item->save();
                 // Retain earlier proofs on either disk; only a failed new attempt may be cleaned up.
 
-                return response()->json(['participation' => $item->load('opportunity')]);
+                return response()->json(['participation' => $item->load('opportunity')->donorView()])->header('Cache-Control', 'private, no-store');
             });
         } catch (\Throwable $error) {
             // Rollback cannot undo filesystem writes. Remove only this attempt's generated file.

@@ -66,4 +66,20 @@ class DonationParticipation extends Model
             }
         });
     }
+
+    /** Donor-only projection: never serialize the live unpublished relationship or its appended media URL. */
+    public function donorView(): array
+    {
+        $opportunity = $this->opportunity;
+        $content = $opportunity->hasDonorReadableContent() ? $opportunity->toArray() : [
+            'id' => $this->donation_opportunity_id, 'source_type' => 'admin_announcement',
+            'title' => 'Announcement details unavailable',
+            'description' => 'This announcement is unpublished or unavailable. Your donation activity record is still available.',
+            'description_document' => null, 'image_url' => null, 'location' => '',
+            'event_date' => null, 'donation_date' => null, 'start_time' => null, 'end_time' => null,
+            'points_reward' => 0, 'published_at' => null, 'expires_at' => null, 'status' => 'unavailable',
+        ];
+
+        return [...$this->attributesToArray(), 'opportunity' => $content];
+    }
 }

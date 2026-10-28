@@ -202,7 +202,10 @@ class AnnouncementManagementTest extends TestCase
         app(AnnouncementService::class)->transition($admin, $id, 'delete');
         $this->travelTo('2026-09-30 05:00:00');
         $this->assertSame(0, app(DonationReminderService::class)->due()->count());
-        $this->getJson('/api/donation-participations/'.$participation)->assertOk()->assertJsonPath('participation.opportunity.title', 'Community blood drive');
+        $this->getJson('/api/donation-participations/'.$participation)->assertOk()
+            ->assertJsonPath('participation.id', $participation)->assertJsonPath('participation.status', 'pending')
+            ->assertJsonPath('participation.opportunity.title', 'Announcement details unavailable')
+            ->assertJsonPath('participation.opportunity.status', 'unavailable');
         $this->getJson('/api/donation-participations?status=pending')->assertJsonPath('data.0.id', $participation);
         $this->travel(30)->days();
         $this->assertSame(['purged' => 0, 'retained' => 1], app(AnnouncementService::class)->purge());

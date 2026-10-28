@@ -42,6 +42,14 @@ class DonationOpportunity extends Model
         return $this->status === 'published' && $this->published_at?->lte(now()) && $this->expires_at?->gt(now()) ? 'active' : 'expired';
     }
 
+    /** Retained published content may be read through owned history after expiry, never after withdrawal. */
+    public function hasDonorReadableContent(): bool
+    {
+        return $this->source_type === 'red_cross_dagupan'
+            || ($this->exists && ! $this->trashed() && $this->status === 'published'
+                && $this->published_at?->lte(now()) && $this->expires_at !== null);
+    }
+
     // ========================================
     // SERVER-MANAGED ANNOUNCEMENT
     // No donor write endpoint exists for this model.

@@ -21,6 +21,12 @@ class DonorProfileRequest extends FormRequest
         return true;
     }
 
+    public function messages(): array
+    {
+        return ['privacy_version.required' => 'Update LifeFlow and review the current Privacy Policy in registration.',
+            'privacy_version.in' => 'Update LifeFlow and review the current Privacy Policy in registration.'];
+    }
+
     // ========================================
     // MOBILE NUMBER NORMALIZATION
     // Accepts the frontend's spacing and punctuation, then converts local
@@ -78,7 +84,8 @@ class DonorProfileRequest extends FormRequest
                     }
                 }];
             }
-            foreach (['accepted_at', 'terms_version', 'privacy_version'] as $field) {
+            $rules['privacy_version'] = ['required', Rule::in([RegistrationVerificationService::PRIVACY_VERSION])];
+            foreach (['accepted_at', 'terms_version'] as $field) {
                 $rules[$field] = ['prohibited'];
             }
 
