@@ -171,7 +171,7 @@ class DonationReminderTest extends TestCase
             }
         };
         $sender->send($notice);
-        $this->assertSame('failed', $notice->fresh()->push_status);
+        $this->assertSame('no_devices', $notice->fresh()->push_status);
         $this->assertNull($notice->fresh()->read_at);
         $this->assertDatabaseCount('notifications', 1);
         Http::assertNothingSent();

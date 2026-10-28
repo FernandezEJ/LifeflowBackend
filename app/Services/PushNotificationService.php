@@ -4,103 +4,55 @@ namespace App\Services;
 
 use App\Models\DeviceToken;
 use App\Models\Notification;
+use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
-use Throwable;
 
 class PushNotificationService
 {
     // ========================================
     // FCM HTTP V1 DELIVERY BOUNDARY
-    // Missing credentials leave in-app history usable. Atomically claiming
-    // each notification prevents replayed jobs from spamming devices.
+    // Missing credentials leave in-app history usable. Per-device durable
+    // progress prevents accepted or ambiguous sends from being replayed.
     // ========================================
     public function send(Notification $notification): void
     {
-        if (! in_array($notification->type, Notification::TYPES, true)) {
-            return;
-        }
-        if ($notification->type === 'donation_reminder' && ! app(DonationReminderService::class)->current($notification)) {
-            $notification->update(['push_status' => 'not_due']);
+        app(PushDeliveryService::class)->fanOut($notification, $this);
+    }
 
-            return;
-        }
-        if ($notification->type === 'donation_cooldown_complete' && ! app(DonationCooldown::class)->currentNotification($notification)) {
-            $notification->update(['push_status' => 'not_due']);
+    public function configured(): bool
+    {
+        return (bool) config('services.fcm.enabled') && (bool) config('services.fcm.project_id')
+            && is_file((string) config('services.fcm.credentials'));
+    }
 
-            return;
-        }
-        if (! config('services.fcm.enabled') || ! config('services.fcm.project_id') || ! is_file((string) config('services.fcm.credentials'))) {
-            $notification->update(['push_status' => 'not_configured']);
+    public function authorization(): string
+    {
+        return $this->accessToken();
+    }
 
-            return;
-        }
-        $claimed = Notification::whereKey($notification->id)->whereNull('push_attempted_at')
-            ->update(['push_attempted_at' => now(), 'push_status' => 'sending']);
-        if (! $claimed) {
-            return;
-        }
-        try {
-            $bearer = $this->accessToken();
-            $failed = false;
-            $sent = false;
-            $devices = $notification->user->deviceTokens()
-                ->where('provider', 'fcm')->where('platform', 'android')
-                ->where('last_seen_at', '>=', now()->subDays(30))
-                ->whereHas('accessToken', function ($query) {
-                    $query->where(function ($query) {
-                        $query->whereNull('expires_at')->orWhere('expires_at', '>', now());
-                    });
-                    if (config('sanctum.expiration')) {
-                        $query->where('created_at', '>', now()->subMinutes(config('sanctum.expiration')));
-                    }
-                })->get();
-            foreach ($devices as $device) {
-                $session = $device->accessToken()->first();
-                if (! $session || ! SessionTokenPolicy::allows($session)) {
-                    continue;
-                }
-                // Recheck ownership/session just before sending, including account
-                // transfer and logout that occurred while this job was queued.
-                if (! DeviceToken::whereKey($device->id)->where('user_id', $notification->user_id)
-                    ->where('personal_access_token_id', $device->personal_access_token_id)->exists()) {
-                    continue;
-                }
-                try {
-                    $data = array_map(fn ($value): string => (string) $value, $notification->data ?? []);
-                    $response = Http::withToken($bearer)->acceptJson()->timeout(10)->connectTimeout(5)
-                        ->post('https://fcm.googleapis.com/v1/projects/'.rawurlencode(config('services.fcm.project_id')).'/messages:send', [
-                            'message' => [
-                                'token' => $device->token,
-                                'notification' => ['title' => $notification->title, 'body' => match ($notification->type) {
-                                    'donation_rejected' => 'Your donation proof was rejected; check the reason.',
-                                    'donation_needs_revision' => 'Please update your donation proof.',
-                                    default => $notification->message,
-                                }],
-                                'data' => [...$data, 'type' => $notification->type, 'notification_id' => (string) $notification->id,
-                                    // Expo Android reads custom navigation data from the JSON body field.
-                                    'body' => json_encode([...$data, 'type' => $notification->type, 'notification_id' => (string) $notification->id])],
-                                'android' => ['priority' => 'normal', 'ttl' => '86400s',
-                                    'notification' => ['channel_id' => 'important', 'tag' => 'lifeflow-'.$notification->id]],
-                            ],
-                        ]);
-                    $codes = collect($response->json('error.details', []))->pluck('errorCode');
-                    if ($codes->contains('UNREGISTERED')) {
-                        DeviceToken::whereKey($device->id)->where('token_hash', $device->token_hash)
-                            ->where('personal_access_token_id', $device->personal_access_token_id)->delete();
-                    }
-                    $failed = $failed || ! $response->successful();
-                    $sent = $sent || $response->successful();
-                } catch (Throwable) {
-                    $failed = true;
-                }
-            }
-            $notification->update(['push_status' => $failed ? 'failed' : ($sent ? 'sent' : 'no_devices')]);
-        } catch (Throwable) {
-            // Do not persist provider payloads or log tokens/private keys.
-            $notification->update(['push_status' => 'failed']);
-        }
+    /** The existing low-sensitivity FCM payload; one bounded send, no HTTP retry. */
+    public function sendToDevice(Notification $notification, DeviceToken $device, string $bearer): Response
+    {
+        $data = array_map(fn ($value): string => (string) $value, $notification->data ?? []);
+
+        return Http::withToken($bearer)->withoutRedirecting()->acceptJson()->timeout(10)->connectTimeout(5)
+            ->post('https://fcm.googleapis.com/v1/projects/'.rawurlencode(config('services.fcm.project_id')).'/messages:send', [
+                'message' => [
+                    'token' => $device->token,
+                    'notification' => ['title' => $notification->title, 'body' => match ($notification->type) {
+                        'donation_rejected' => 'Your donation proof was rejected; check the reason.',
+                        'donation_needs_revision' => 'Please update your donation proof.',
+                        default => $notification->message,
+                    }],
+                    'data' => [...$data, 'type' => $notification->type, 'notification_id' => (string) $notification->id,
+                        // Expo Android reads custom navigation data from the JSON body field.
+                        'body' => json_encode([...$data, 'type' => $notification->type, 'notification_id' => (string) $notification->id])],
+                    'android' => ['priority' => 'normal', 'ttl' => '86400s',
+                        'notification' => ['channel_id' => 'important', 'tag' => 'lifeflow-'.$notification->id]],
+                ],
+            ]);
     }
 
     // ========================================

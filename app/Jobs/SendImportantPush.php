@@ -6,6 +6,8 @@ use App\Models\Notification;
 use App\Services\PushNotificationService;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
+use Illuminate\Support\Facades\Log;
+use Throwable;
 
 class SendImportantPush implements ShouldQueue
 {
@@ -13,8 +15,8 @@ class SendImportantPush implements ShouldQueue
 
     // ========================================
     // IMPORTANT PUSH DELIVERY JOB
-    // One delivery attempt avoids repeated phone alerts after ambiguous network
-    // failures. The persistent claim also protects against duplicate queued jobs.
+    // A bounded fan-out page and at most one per-device attempt. Durable target
+    // state controls recovery; queue retry never authorizes replaying a send.
     // ========================================
     public int $tries = 1;
 
@@ -25,9 +27,18 @@ class SendImportantPush implements ShouldQueue
 
     public function handle(PushNotificationService $push): void
     {
-        $notification = Notification::find($this->notificationId);
-        if ($notification) {
-            $push->send($notification);
+        try {
+            $notification = Notification::find($this->notificationId);
+            if ($notification) {
+                $push->send($notification);
+            }
+        } catch (Throwable) {
+            Log::error('Push coordinator unavailable; recover only durable unattempted work.');
         }
+    }
+
+    public function failed(?Throwable $exception): void
+    {
+        Log::error('Push coordinator stopped; reconcile durable progress before any recovery.');
     }
 }

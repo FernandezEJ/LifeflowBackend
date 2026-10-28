@@ -155,7 +155,7 @@ class NotificationTest extends TestCase
         $sender = $this->fakeSender();
         (new SendImportantPush($notice->id))->handle($sender);
         (new SendImportantPush($notice->id))->handle($sender);
-        $this->assertSame('failed', $notice->fresh()->push_status);
+        $this->assertSame($status === null ? 'ambiguous' : 'failed', $notice->fresh()->push_status);
         $this->assertNotNull($notice->fresh()->push_attempted_at);
         $this->assertNull($notice->fresh()->read_at);
         $this->assertDatabaseCount('device_tokens', 1);

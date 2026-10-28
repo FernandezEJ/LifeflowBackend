@@ -16,3 +16,5 @@ Schedule::command('admins:purge-deactivated')->daily()->timezone(config('app.cal
 Schedule::command('announcements:purge-deleted')->daily()->timezone(config('app.calendar_timezone'))->withoutOverlapping();
 Schedule::command('rewards:purge-deleted')->daily()->timezone(config('app.calendar_timezone'))->withoutOverlapping();
 Schedule::command('flowie:purge-deleted')->daily()->timezone(config('app.calendar_timezone'))->withoutOverlapping();
+Schedule::command('auth:prune-temporary')->daily()->timezone(config('app.calendar_timezone'))->withoutOverlapping();
+Schedule::command('notifications:recover-push')->everyFiveMinutes()->withoutOverlapping();

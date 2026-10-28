@@ -16,11 +16,14 @@ class Notification extends Model
 
     protected $guarded = ['id'];
 
-    protected $hidden = ['event_key', 'push_attempted_at', 'push_status', 'user_id'];
+    protected $hidden = ['event_key', 'push_attempted_at', 'push_status', 'user_id',
+        'push_delivery_version', 'push_fanout_cursor', 'push_fanout_max_device_id', 'push_fanout_completed_at'];
 
     protected function casts(): array
     {
-        return ['data' => 'array', 'read_at' => 'datetime', 'push_attempted_at' => 'datetime'];
+        return ['data' => 'array', 'read_at' => 'datetime', 'push_attempted_at' => 'datetime',
+            'push_delivery_version' => 'integer', 'push_fanout_cursor' => 'integer', 'push_fanout_max_device_id' => 'integer',
+            'push_fanout_completed_at' => 'datetime'];
     }
 
     public function user(): BelongsTo
