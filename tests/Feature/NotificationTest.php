@@ -426,6 +426,31 @@ class NotificationTest extends TestCase
         $this->assertDatabaseCount('device_tokens', 1);
     }
 
+    public static function boundedSessions(): array
+    {
+        return ['null expiry' => [null, false], 'overlong explicit expiry' => ['future', false], 'invalid issuance' => [null, true]];
+    }
+
+    #[DataProvider('boundedSessions')]
+    public function test_push_delivery_rejects_legacy_or_invalid_sessions_without_changing_inbox(?string $expiry, bool $invalid): void
+    {
+        $user = $this->signIn();
+        $this->postJson('/api/device-tokens', $this->tokenPayload('aged'))->assertOk();
+        $device = DeviceToken::firstOrFail();
+        DB::table('personal_access_tokens')->where('id', $device->personal_access_token_id)->update([
+            'created_at' => $invalid ? null : now()->subDays(31),
+            'expires_at' => $expiry === 'future' ? now()->addYear() : null,
+        ]);
+        config(['services.fcm.enabled' => true, 'services.fcm.project_id' => 'test-project', 'services.fcm.credentials' => __FILE__]);
+        Http::fake();
+        $notice = $this->history($user, 'bounded-session');
+        $this->fakeSender()->send($notice);
+        $this->assertSame('no_devices', $notice->fresh()->push_status);
+        $this->assertDatabaseCount('notifications', 1);
+        $this->assertDatabaseCount('device_tokens', 1);
+        Http::assertNothingSent();
+    }
+
     public function test_non_approved_type_and_expired_session_cannot_send(): void
     {
         $user = $this->signIn();

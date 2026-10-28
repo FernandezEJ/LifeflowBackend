@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin\Auth;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\AdminLoginRequest;
 use App\Models\User;
+use App\Services\SessionTokenPolicy;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -26,7 +27,7 @@ class AdminAuthController extends Controller
 
             $user->last_login_at = now()->startOfSecond();
             $user->save();
-            $token = $user->createToken('admin-web')->plainTextToken;
+            $token = $user->createToken('admin-web', ['*'], SessionTokenPolicy::expiresFor($user))->plainTextToken;
 
             return response()->json(['token' => $token, 'user' => $this->profile($user)])
                 ->header('Cache-Control', 'no-store');

@@ -159,7 +159,7 @@ class DonorLoginService
             }
 
             return ['message' => 'Login successful', 'user' => $user, 'donor_profile' => $user->donorProfile,
-                'token' => $user->createToken('mobile')->plainTextToken];
+                'token' => $user->createToken('mobile', ['*'], SessionTokenPolicy::expiresFor($user))->plainTextToken];
         }, 3) : null;
         if ($result === null) {
             throw ValidationException::withMessages(['code' => 'The login code is invalid, expired, or already used. Request a new code if needed.']);

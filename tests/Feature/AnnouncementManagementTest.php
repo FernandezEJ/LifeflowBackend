@@ -100,7 +100,7 @@ class AnnouncementManagementTest extends TestCase
     {
         Queue::fake();
         $donor = User::factory()->create();
-        $this->signIn();
+        $staff = $this->signIn();
         $id = $this->postJson('/api/admin/announcements', $this->payload(['status' => 'published']))->assertCreated()->json('announcement.id');
         $this->postJson('/api/admin/announcements/'.$id.'/publish')->assertOk();
         $this->putJson('/api/admin/announcements/'.$id, $this->payload(['status' => 'published']))->assertOk();
@@ -112,6 +112,8 @@ class AnnouncementManagementTest extends TestCase
         $this->getAsDonor($donor, '/api/announcements/'.$id)->assertOk()->assertJsonPath('opportunity.donation_date', '2026-10-01');
         $this->travelTo('2026-10-01 16:00:00');
         $this->getAsDonor($donor, '/api/announcements')->assertOk()->assertJsonCount(0, 'data');
+        $this->withToken($staff->createToken('admin-web')->plainTextToken);
+        app('auth')->forgetGuards();
         $this->getJson('/api/admin/announcements?status=expired')->assertJsonPath('data.0.id', $id);
         $this->getAsDonor($donor, '/api/donation-opportunities/red-cross-dagupan')->assertOk()->assertJsonPath('opportunity.source_type', 'red_cross_dagupan');
     }
@@ -232,6 +234,9 @@ class AnnouncementManagementTest extends TestCase
         $this->assertSame(['id', 'status', 'joined_at', 'cancelled_at', 'donor'], array_keys($response->json('data.0')));
         $this->assertSame(['id', 'name'], array_keys($response->json('data.0.donor')));
         $this->travelTo('2026-10-02 05:00:00');
+        $token = $staff->createToken('history-test')->plainTextToken;
+        $this->withToken($token);
+        app('auth')->forgetGuards();
         $this->getJson('/api/admin/announcements/'.$id)->assertOk()->assertJsonPath('announcement.status', 'expired')->assertJsonPath('announcement.participants_count', 1);
         $this->getJson('/api/admin/announcements/'.$id.'/participants')->assertOk()->assertJsonPath('data.0.id', $joined);
         $newDonor = $this->signIn('donor');
@@ -249,13 +254,15 @@ class AnnouncementManagementTest extends TestCase
 
     public function test_participant_counts_and_pages_preserve_cancelled_attempts_and_deleted_donor_history(): void
     {
-        $this->signIn();
+        $staff = $this->signIn();
         $id = $this->postJson('/api/admin/announcements', $this->payload())->assertCreated()->json('announcement.id');
         $this->getJson('/api/admin/announcements/'.$id)->assertJsonPath('announcement.participants_count', 0)->assertJsonCount(0, 'announcement.participants_preview');
         $this->getJson('/api/admin/announcements/'.$id.'/participants')->assertOk()->assertJsonCount(0, 'data')->assertJsonPath('meta.total', 0);
         $this->postJson('/api/admin/announcements/'.$id.'/publish')->assertOk();
         $this->getJson('/api/admin/announcements/'.$id)->assertOk()->assertJsonPath('announcement.status', 'active')->assertJsonPath('announcement.participants_count', 0);
         $this->travelTo('2026-10-02 05:00:00');
+        $this->withToken($staff->createToken('admin-web')->plainTextToken);
+        app('auth')->forgetGuards();
         $this->getJson('/api/admin/announcements/'.$id)->assertOk()->assertJsonPath('announcement.status', 'expired')->assertJsonPath('announcement.participants_count', 0);
         $donors = User::factory()->count(3)->create();
         foreach (range(1, 24) as $index) {

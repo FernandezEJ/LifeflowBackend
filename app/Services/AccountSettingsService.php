@@ -25,7 +25,7 @@ class AccountSettingsService
         abort_unless($user->isActiveVerifiedDonor(), 403, 'Access denied.');
         $id = $actor->currentAccessToken()?->getKey();
         $session = $id ? $user->tokens()->whereKey($id)->first() : null;
-        abort_unless($session && (! $session->expires_at || $session->expires_at->isFuture()), 401, 'Please log in again.');
+        abort_unless($session && SessionTokenPolicy::allows($session, $user), 401, 'Please log in again.');
 
         return $user;
     }

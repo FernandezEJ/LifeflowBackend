@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\UserRole;
+use App\Services\SessionTokenPolicy;
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -28,6 +29,15 @@ class User extends Authenticatable
     use HasApiTokens, HasFactory, Notifiable, SoftDeletes;
 
     protected $attributes = ['role' => 'donor', 'must_change_password' => false];
+
+    protected static function booted(): void
+    {
+        static::updating(function (User $user): void {
+            if ($user->isDirty('role')) {
+                SessionTokenPolicy::restrictRoleChange($user);
+            }
+        });
+    }
 
     public function isDonor(): bool
     {

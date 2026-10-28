@@ -200,7 +200,7 @@ class RegistrationVerificationService
                     'acknowledged_prescreening' => true, 'terms_version' => $data['terms_version'],
                     'privacy_version' => $data['privacy_version'], 'accepted_at' => now(),
                 ]);
-                $session = $user->createToken('mobile')->plainTextToken;
+                $session = $user->createToken('mobile', ['*'], SessionTokenPolicy::expiresFor($user))->plainTextToken;
                 DB::table('pending_registrations')->where('email_hash', $row->email_hash)->update([
                     'used_at' => now(), 'verified_at' => now(), 'payload' => null, 'password_hash' => null,
                     'code_hash' => null, 'updated_at' => now(),

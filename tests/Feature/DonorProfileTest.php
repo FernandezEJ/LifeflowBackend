@@ -3,9 +3,9 @@
 namespace Tests\Feature;
 
 use App\Models\DonorProfile;
+use App\Models\PersonalAccessToken;
 use App\Models\User;
 use Illuminate\Support\Facades\Hash;
-use Laravel\Sanctum\PersonalAccessToken;
 use PHPUnit\Framework\Attributes\DataProvider;
 use RuntimeException;
 use Tests\TestCase;

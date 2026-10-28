@@ -131,6 +131,8 @@ class DonationCooldownTest extends TestCase
         $this->assertFalse($this->metadata()['is_on_donation_cooldown']);
         $this->assertSame(0, $this->metadata()['donation_cooldown_remaining_seconds']);
         $this->assessment();
+        $this->withToken($this->donor->createToken('mobile')->plainTextToken);
+        app('auth')->forgetGuards();
         $this->postJson('/api/donation-opportunities/red-cross-dagupan/join')->assertCreated();
     }
 
@@ -230,6 +232,8 @@ class DonationCooldownTest extends TestCase
         $notice = Notification::where('type', 'donation_cooldown_complete')->sole();
         $this->assertSame('Donation Rest Complete', $notice->title);
         $this->assertSame('2027-01-01T10:00:00+08:00', $notice->data['next_eligible_donation_at']);
+        $this->withToken($this->donor->createToken('mobile')->plainTextToken);
+        app('auth')->forgetGuards();
         $this->getJson('/api/notifications')->assertOk()->assertJsonPath('data.0.type', 'donation_cooldown_complete');
         $this->artisan('donations:notify-cooldown-complete')->expectsOutput('Created 0 donation rest period notification(s).')->assertExitCode(0);
         $this->assertSame(1, Notification::where('type', 'donation_cooldown_complete')->count());

@@ -3,12 +3,15 @@
 namespace App\Providers;
 
 use App\Models\DonationParticipation;
+use App\Models\PersonalAccessToken;
 use App\Observers\DonationParticipationObserver;
 use App\Services\DonorIdentity;
+use App\Services\SessionTokenPolicy;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
+use Laravel\Sanctum\Sanctum;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -25,6 +28,11 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        Sanctum::usePersonalAccessTokenModel(PersonalAccessToken::class);
+        Sanctum::authenticateAccessTokensUsing(
+            fn (PersonalAccessToken $token, bool $valid): bool => $valid && SessionTokenPolicy::allows($token),
+        );
+
         // ========================================
         // TRUSTED DONATION STATUS NOTIFICATIONS
         // Observes model saves without exposing any donor verification route.

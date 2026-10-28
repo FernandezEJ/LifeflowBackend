@@ -19,7 +19,7 @@ class FlowieConversationService
         abort_unless($user->isActiveVerifiedDonor(), 403, 'Access denied.');
         $tokenId = $actor->currentAccessToken()?->getKey();
         $token = $tokenId ? $user->tokens()->find($tokenId) : null;
-        abort_unless($token && (! $token->expires_at || $token->expires_at->isFuture()), 401, 'Please log in again.');
+        abort_unless($token && SessionTokenPolicy::allows($token, $user), 401, 'Please log in again.');
 
         return $user;
     }

@@ -57,6 +57,10 @@ class PushNotificationService
                     }
                 })->get();
             foreach ($devices as $device) {
+                $session = $device->accessToken()->first();
+                if (! $session || ! SessionTokenPolicy::allows($session)) {
+                    continue;
+                }
                 // Recheck ownership/session just before sending, including account
                 // transfer and logout that occurred while this job was queued.
                 if (! DeviceToken::whereKey($device->id)->where('user_id', $notification->user_id)
