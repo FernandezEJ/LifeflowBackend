@@ -125,10 +125,8 @@ class RegistrationVerificationService
             if (! $delivery) {
                 return;
             }
-            // Reuse the existing TLS-only Gmail transport, without mixing reset records or jobs.
-            $smtp = config('mail.mailers.password_reset', []);
-            if (config('mail.default') !== 'smtp' || ($smtp['transport'] ?? '') !== 'smtp'
-                || empty($smtp['host']) || empty($smtp['username']) || empty($smtp['password']) || empty(config('mail.from.address'))) {
+            // Reuse the dedicated secure transport, without mixing reset records or jobs.
+            if (! AuthMailConfiguration::configured()) {
                 Log::error('Registration verification SMTP is not configured. Check mail settings.');
                 $this->invalidateDelivery($requestId);
 

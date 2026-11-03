@@ -43,13 +43,14 @@ class ProductionReadiness
             && (in_array('*', $headers, true) || in_array('authorization', $headers, true))
             && config('cors.supports_credentials') === false, 'Cover API bearer preflights without enabling cookie credentials.');
         $smtp = config('mail.mailers.password_reset', []);
-        $add('smtp', config('mail.default') === 'smtp' && is_array($smtp)
+        $brevo = is_array($smtp) && ($smtp['transport'] ?? null) === 'brevo' && AuthMailConfiguration::brevoConfigured();
+        $add('smtp', $brevo || (config('mail.default') === 'smtp' && is_array($smtp)
             && ($smtp['transport'] ?? null) === 'smtp' && ($smtp['require_tls'] ?? null) === true
             && in_array($smtp['scheme'] ?? null, ['smtp', 'smtps'], true)
             && $this->present($smtp['host'] ?? null) && $this->present($smtp['username'] ?? null) && $this->present($smtp['password'] ?? null)
             && (is_int($smtp['port'] ?? null) || is_string($smtp['port'] ?? null)) && ctype_digit((string) $smtp['port'])
-            && (int) $smtp['port'] > 0 && (int) $smtp['port'] <= 65535,
-            'Configure the dedicated encrypted SMTP transport used by all authentication mail.');
+            && (int) $smtp['port'] > 0 && (int) $smtp['port'] <= 65535),
+            'Configure dedicated authentication mail: encrypted SMTP or explicitly selected Brevo HTTPS.');
         $sender = config('mail.from.address');
         $add('mail_sender', is_string($sender) && filter_var($sender, FILTER_VALIDATE_EMAIL) !== false
             && $this->present(config('mail.from.name')), 'Configure an authorized sender identity; DNS/delivery still require staging.');

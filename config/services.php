@@ -1,6 +1,9 @@
 <?php
 
 return [
+    'brevo' => [
+        'key' => env('BREVO_API_KEY'),
+    ],
     'groq' => [
         'base_url' => 'https://api.groq.com/openai/v1',
         'key' => env('GROQ_API_KEY'),

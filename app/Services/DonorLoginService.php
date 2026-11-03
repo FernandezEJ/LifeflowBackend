@@ -105,10 +105,8 @@ class DonorLoginService
             if (! $delivery) {
                 return;
             }
-            // Reuse the app's TLS-only transport; never send login codes to log/failover mailers.
-            $smtp = config('mail.mailers.password_reset', []);
-            if (config('mail.default') !== 'smtp' || ($smtp['transport'] ?? '') !== 'smtp'
-                || empty($smtp['host']) || empty($smtp['username']) || empty($smtp['password']) || empty(config('mail.from.address'))) {
+            // Reuse the dedicated secure transport; never send login codes to log/failover mailers.
+            if (! AuthMailConfiguration::configured()) {
                 $this->invalidateDelivery($id);
                 Log::error('Donor login SMTP is not configured. Check mail settings.');
 

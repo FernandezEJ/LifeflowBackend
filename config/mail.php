@@ -37,9 +37,9 @@ return [
 
     'mailers' => [
 
-        // Reset codes may only use encrypted SMTP, never the log/failover mailers.
+        // Authentication codes use explicit SMTP or HTTPS Brevo, never log/failover.
         'password_reset' => [
-            'transport' => 'smtp',
+            'transport' => env('LIFEFLOW_AUTH_MAIL_TRANSPORT', 'smtp'),
             'scheme' => env('MAIL_SCHEME', 'smtp'),
             'host' => env('MAIL_HOST'),
             'port' => env('MAIL_PORT', 587),

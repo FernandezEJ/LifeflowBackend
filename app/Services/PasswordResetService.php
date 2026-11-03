@@ -100,10 +100,7 @@ class PasswordResetService
             if ($code === null) {
                 return;
             }
-            $smtp = config('mail.mailers.password_reset', []);
-            if (config('mail.default') !== 'smtp' || ($smtp['transport'] ?? null) !== 'smtp'
-                || empty($smtp['host']) || empty($smtp['username']) || empty($smtp['password'])
-                || empty(config('mail.from.address'))) {
+            if (! AuthMailConfiguration::configured()) {
                 Log::error('Password reset email is not configured. Configure SMTP host, credentials and sender.');
                 $this->invalidate($requestId);
 

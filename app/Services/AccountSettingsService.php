@@ -157,9 +157,7 @@ class AccountSettingsService
             if (! $delivery) {
                 return;
             }
-            $smtp = config('mail.mailers.password_reset', []);
-            if (config('mail.default') !== 'smtp' || ($smtp['transport'] ?? '') !== 'smtp'
-                || empty($smtp['host']) || empty($smtp['username']) || empty($smtp['password']) || empty(config('mail.from.address'))) {
+            if (! AuthMailConfiguration::configured()) {
                 $this->invalidateDelivery($id);
                 Log::error('Email change SMTP is not configured.');
 
