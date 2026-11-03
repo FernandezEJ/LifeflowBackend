@@ -17,6 +17,12 @@ class RegistrationVerificationMail extends Mailable
 
     public function content(): Content
     {
-        return new Content(text: 'mail.registration-verification');
+        return new Content(view: 'mail.auth-code-html', text: 'mail.registration-verification', with: [
+            'title' => 'Verify your LifeFlow email',
+            'heading' => 'Verify your email',
+            'instructions' => 'Enter this six-digit code in LifeFlow to finish creating your account.',
+            'minutes' => 15,
+            'ignoreNotice' => 'If you did not try to create a LifeFlow account, you can ignore this email.',
+        ]);
     }
 }

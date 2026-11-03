@@ -17,6 +17,12 @@ class EmailChangeCodeMail extends Mailable
 
     public function content(): Content
     {
-        return new Content(text: 'mail.email-change');
+        return new Content(view: 'mail.auth-code-html', text: 'mail.email-change', with: [
+            'title' => 'Verify your new LifeFlow email',
+            'heading' => 'Verify your new email',
+            'instructions' => 'Enter this six-digit code in LifeFlow to confirm your new email address.',
+            'minutes' => 15,
+            'ignoreNotice' => 'If you did not request this change, ignore this email.',
+        ]);
     }
 }

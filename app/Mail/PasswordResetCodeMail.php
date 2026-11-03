@@ -17,6 +17,12 @@ class PasswordResetCodeMail extends Mailable
 
     public function content(): Content
     {
-        return new Content(text: 'mail.password-reset-code');
+        return new Content(view: 'mail.auth-code-html', text: 'mail.password-reset-code', with: [
+            'title' => 'Your LifeFlow password reset code',
+            'heading' => 'Reset your password',
+            'instructions' => 'Enter this six-digit code in LifeFlow to continue resetting your password.',
+            'minutes' => 15,
+            'ignoreNotice' => 'If you did not request a password reset, you can ignore this email.',
+        ]);
     }
 }

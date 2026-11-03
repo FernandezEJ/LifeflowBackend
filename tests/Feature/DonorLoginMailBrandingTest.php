@@ -25,7 +25,7 @@ class DonorLoginMailBrandingTest extends TestCase
         $mail->assertHasSubject('Your LifeFlow verification code');
         $mail->assertFrom('verified-sender@example.test', 'LifeFlow');
         foreach (['LifeFlow', '123456', 'This code expires in 10 minutes.', "If you didn't request this, you can ignore this email."] as $copy) {
-            $mail->assertSeeInHtml($copy, false);
+            $mail->assertSeeInHtml($copy);
             $mail->assertSeeInText($copy);
         }
         $html = $mail->render();
@@ -55,7 +55,7 @@ class DonorLoginMailBrandingTest extends TestCase
         Http::assertNothingSent();
     }
 
-    public function test_dynamic_code_is_escaped_and_shared_admin_registration_and_change_email_mail_are_unchanged(): void
+    public function test_dynamic_code_is_escaped_and_sender_subject_and_text_contracts_are_preserved(): void
     {
         $this->assertStringNotContainsString('<script>', (new DonorLoginCodeMail('<script>'))->render());
         $this->assertStringContainsString('&lt;script&gt;', (new DonorLoginCodeMail('<script>'))->render());
@@ -65,10 +65,47 @@ class DonorLoginMailBrandingTest extends TestCase
         $staff = $mailer->getSymfonyTransport()->messages()->last()->getOriginalMessage();
         $this->assertSame('Existing Staff Sender', $staff->getFrom()[0]->getName());
         $this->assertSame('Your LifeFlow password reset code', $staff->getSubject());
-        $this->assertNull($staff->getHtmlBody());
+        $this->assertStringContainsString('Reset your password', $staff->getHtmlBody());
         $this->assertSame('Existing Staff Sender', config('mail.from.name'));
         $this->assertSame('mail.registration-verification', (new RegistrationVerificationMail('123456'))->content()->text);
         $this->assertSame('mail.email-change', (new EmailChangeCodeMail('123456'))->content()->text);
 
+    }
+
+    public function test_all_authentication_purposes_render_the_same_html_design_and_readable_text_alternative(): void
+    {
+        foreach ([
+            [DonorLoginCodeMail::class, 'Your LifeFlow verification code', 'continue signing in', 10],
+            [RegistrationVerificationMail::class, 'Verify your LifeFlow email', 'finish creating your account', 15],
+            [PasswordResetCodeMail::class, 'Your LifeFlow password reset code', 'resetting your password', 15],
+            [EmailChangeCodeMail::class, 'Verify your new LifeFlow email', 'confirm your new email address', 15],
+        ] as [$class, $subject, $instructions, $minutes]) {
+            $mail = new $class('123456');
+            $mail->assertHasSubject($subject);
+            $mail->assertSeeInHtml($instructions);
+            foreach (['LifeFlow', '123456', 'This code expires in '.$minutes.' minutes.', 'Never share it with anyone.'] as $copy) {
+                $mail->assertSeeInHtml($copy);
+                $mail->assertSeeInText($copy);
+            }
+            $html = $mail->render();
+            foreach (['role="presentation"', 'max-width:480px', '#FFF9F2', '#FFCAD0', '#892325', '#250202'] as $design) {
+                $this->assertStringContainsString($design, $html);
+            }
+            $this->assertDoesNotMatchRegularExpression('/<(img|script|iframe|form|a)\b|https?:\/\/|data:image|url\(/i', $html);
+            $escaped = (new $class('<script>'))->render();
+            $this->assertStringNotContainsString('<script>', $escaped);
+            $this->assertStringContainsString('&lt;script&gt;', $escaped);
+            $mailer = Mail::mailer('array');
+            $mailer->to('recipient@example.test')->send(new $class('123456'));
+            $message = $mailer->getSymfonyTransport()->messages()->last()->getOriginalMessage();
+            $this->assertSame('recipient@example.test', $message->getTo()[0]->getAddress());
+            $this->assertSame('verified-sender@example.test', $message->getFrom()[0]->getAddress());
+            $this->assertSame($class === DonorLoginCodeMail::class ? 'LifeFlow' : 'Existing Staff Sender', $message->getFrom()[0]->getName());
+            $this->assertStringContainsString('multipart/alternative', $message->toString());
+            $this->assertStringContainsString('123456', $message->getHtmlBody());
+            $this->assertStringContainsString('123456', $message->getTextBody());
+            $this->assertStringNotContainsString('<table', $message->getTextBody());
+        }
+        Http::assertNothingSent();
     }
 }

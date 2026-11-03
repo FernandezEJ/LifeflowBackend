@@ -144,9 +144,9 @@ class BrevoAuthMailTest extends TestCase
         $content = $payload['textContent'];
         $this->assertStringContainsString('LifeFlow', $content);
         $this->assertMatchesRegularExpression('/\b[0-9]{6}\b/', $content);
-        if ($flow === 'login') {
-            $this->assertStringContainsString('LifeFlow', $payload['htmlContent']);
-        }
+        $this->assertStringContainsString('LifeFlow', $payload['htmlContent']);
+        $this->assertStringContainsString('role="presentation"', $payload['htmlContent']);
+        $this->assertStringContainsString('This code expires in '.($flow === 'login' ? '10' : '15').' minutes.', $payload['htmlContent']);
         $row = DB::table($table)->first();
         if ($outcome === 'accepted') {
             $this->assertNotEmpty($row->code_hash);
