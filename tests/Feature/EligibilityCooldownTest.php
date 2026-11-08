@@ -30,24 +30,24 @@ class EligibilityCooldownTest extends TestCase
     {
         $user = User::factory()->create();
         $this->withToken($user->createToken('test')->plainTextToken);
-        $this->getJson('/api/eligibility-assessments/latest')->assertOk()
+        $this->getJson('/api/eligibility-assessments/latest?assessment_version=v5')->assertOk()
             ->assertJsonPath('assessment', null)->assertJsonPath('cooldown_active', false)
             ->assertJsonPath('remaining_seconds', 0)->assertJsonPath('next_allowed_at', null);
-        $first = $this->postJson('/api/eligibility-assessments', ['answers' => EligibilityEvaluatorTest::answers()])
+        $first = $this->postJson('/api/eligibility-assessments', EligibilityEvaluatorTest::payload())
             ->assertCreated()->assertJsonPath('cooldown_active', true)->assertJsonPath('remaining_seconds', 86400);
         $this->assertDatabaseCount('eligibility_assessments', 1);
         $original = $user->eligibilityAssessments()->firstOrFail()->getRawOriginal();
         $next = $first->json('next_allowed_at');
         $this->travel($seconds)->seconds();
         $blocked = $this->postJson('/api/eligibility-assessments', [
-            'answers' => [...EligibilityEvaluatorTest::answers(), 'recentFeverInfectionOrIllness' => 'YES'],
+            ...EligibilityEvaluatorTest::payload(['feverPastSevenDays' => 'YES']),
         ])->assertStatus(409)->assertJsonPath('assessment.id', $first->json('assessment.id'))
             ->assertJsonPath('latest_assessment.id', $first->json('assessment.id'))
             ->assertJsonPath('cooldown_active', true)->assertJsonPath('next_allowed_at', $next)
             ->assertJsonPath('remaining_seconds', 86400 - $seconds)
             ->assertJsonMissingPath('created');
         $this->assertEquals($first->json('assessment'), $blocked->json('latest_assessment'));
-        $this->getJson('/api/eligibility-assessments/latest')->assertOk()
+        $this->getJson('/api/eligibility-assessments/latest?assessment_version=v5')->assertOk()
             ->assertJsonPath('assessment', $blocked->json('assessment'))
             ->assertJsonPath('remaining_seconds', 86400 - $seconds);
         $this->assertSame($original, $user->eligibilityAssessments()->firstOrFail()->getRawOriginal());
@@ -65,18 +65,18 @@ class EligibilityCooldownTest extends TestCase
     {
         $user = User::factory()->create();
         $this->withToken($user->createToken('test')->plainTextToken);
-        $first = $this->postJson('/api/eligibility-assessments', ['answers' => EligibilityEvaluatorTest::answers()])->assertCreated();
+        $first = $this->postJson('/api/eligibility-assessments', EligibilityEvaluatorTest::payload())->assertCreated();
         $original = $user->eligibilityAssessments()->firstOrFail()->getRawOriginal();
         $this->travel($seconds)->seconds();
-        $this->getJson('/api/eligibility-assessments/latest')->assertOk()
+        $this->getJson('/api/eligibility-assessments/latest?assessment_version=v5')->assertOk()
             ->assertJsonPath('cooldown_active', false)->assertJsonPath('remaining_seconds', 0);
         $second = $this->postJson('/api/eligibility-assessments', [
-            'answers' => [...EligibilityEvaluatorTest::answers(), 'recentFeverInfectionOrIllness' => 'YES'],
+            ...EligibilityEvaluatorTest::payload(['feverPastSevenDays' => 'YES']),
         ])->assertCreated()->assertJsonPath('assessment.user_id', $user->id)
-            ->assertJsonPath('assessment.result', 'not_eligible');
+            ->assertJsonPath('assessment.result', 'needs_further_review');
         $this->assertNotSame($first->json('assessment.id'), $second->json('assessment.id'));
         $this->assertSame($original, $user->eligibilityAssessments()->findOrFail($first->json('assessment.id'))->getRawOriginal());
-        $this->getJson('/api/eligibility-assessments')->assertOk()->assertJsonCount(2, 'data')
+        $this->getJson('/api/eligibility-assessments?assessment_version=v5')->assertOk()->assertJsonCount(2, 'data')
             ->assertJsonPath('data.0.id', $second->json('assessment.id'))
             ->assertJsonPath('data.1.id', $first->json('assessment.id'));
         $this->assertDatabaseCount('eligibility_assessments', 2);
@@ -87,15 +87,15 @@ class EligibilityCooldownTest extends TestCase
         $first = User::factory()->create();
         $second = User::factory()->create();
         $this->withToken($first->createToken('one')->plainTextToken)
-            ->postJson('/api/eligibility-assessments', ['answers' => EligibilityEvaluatorTest::answers()])->assertCreated();
+            ->postJson('/api/eligibility-assessments', EligibilityEvaluatorTest::payload())->assertCreated();
         // Clear the guard's cached user to model a separate authenticated request.
         app('auth')->forgetGuards();
         $this->withToken($second->createToken('two')->plainTextToken);
-        $this->getJson('/api/eligibility-assessments/latest?user_id='.$first->id)->assertOk()
+        $this->getJson('/api/eligibility-assessments/latest?assessment_version=v5&user_id='.$first->id)->assertOk()
             ->assertJsonPath('assessment', null)->assertJsonPath('cooldown_active', false);
-        $this->postJson('/api/eligibility-assessments', ['answers' => EligibilityEvaluatorTest::answers()])
+        $this->postJson('/api/eligibility-assessments', EligibilityEvaluatorTest::payload())
             ->assertCreated()->assertJsonPath('assessment.user_id', $second->id);
-        $this->getJson('/api/eligibility-assessments?user_id='.$first->id)->assertOk()
+        $this->getJson('/api/eligibility-assessments?assessment_version=v5&user_id='.$first->id)->assertOk()
             ->assertJsonCount(1, 'data')->assertJsonPath('data.0.user_id', $second->id);
         $this->assertDatabaseCount('eligibility_assessments', 2);
     }

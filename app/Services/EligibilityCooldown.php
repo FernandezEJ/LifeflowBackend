@@ -41,6 +41,7 @@ class EligibilityCooldown
             // Each permitted submission adds history; it never replaces a result.
             $assessment = $user->eligibilityAssessments()->create([
                 ...app(EligibilityEvaluator::class)->evaluate($answers),
+                'assessment_version' => EligibilityEvaluator::VERSION,
                 'answers' => $answers,
                 'assessed_at' => now()->startOfSecond(),
             ]);

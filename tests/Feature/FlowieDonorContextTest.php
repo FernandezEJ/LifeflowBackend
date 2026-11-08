@@ -70,7 +70,7 @@ class FlowieDonorContextTest extends TestCase
     {
         $user->eligibilityAssessments()->create([
             'result' => $result, 'reasons' => ['private-medical-reason'],
-            'answers' => EligibilityEvaluatorTest::answers(),
+            'answers' => EligibilityEvaluatorTest::legacyAnswers(),
             'assessed_at' => $at ? CarbonImmutable::parse($at)->utc() : now(),
         ]);
     }

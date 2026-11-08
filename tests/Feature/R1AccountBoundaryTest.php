@@ -25,6 +25,7 @@ use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 use Tests\TestCase;
+use Tests\Unit\EligibilityEvaluatorTest;
 
 class R1AccountBoundaryTest extends TestCase
 {
@@ -116,7 +117,7 @@ class R1AccountBoundaryTest extends TestCase
             'flowie/conversations/1/end', 'flowie/conversations/1/restore'] as $uri) {
             $rows[] = ['POST', $uri, []];
         }
-        $rows[] = ['POST', 'eligibility-assessments', ['answers' => $this->answers()]];
+        $rows[] = ['POST', 'eligibility-assessments', EligibilityEvaluatorTest::payload()];
         $rows[] = ['PUT', 'donor-profile', ['first_name' => 'Blocked']];
         $rows[] = ['PUT', 'donor-profile/avatar', ['profile_avatar' => 'mascot_2']];
         $rows[] = ['DELETE', 'flowie/conversations/1', []];
@@ -225,7 +226,7 @@ class R1AccountBoundaryTest extends TestCase
         }
         $this->requestAs($token, 'PUT', 'donor-profile', ['first_name' => 'Edited'])->assertOk();
         $this->requestAs($token, 'PUT', 'donor-profile/avatar', ['profile_avatar' => 'mascot_2'])->assertOk();
-        $this->requestAs($token, 'POST', 'eligibility-assessments', ['answers' => $this->answers()])->assertCreated();
+        $this->requestAs($token, 'POST', 'eligibility-assessments', EligibilityEvaluatorTest::payload())->assertCreated();
         $item = $this->requestAs($token, 'POST', 'donation-opportunities/'.$opportunity->id.'/join')->assertCreated()->json('participation.id');
         $this->requestAs($token, 'GET', 'donation-participations/'.$item)->assertOk()->assertJsonPath('participation.user_id', $owner->id);
         $this->requestAs($token, 'POST', 'donation-participations/'.$item.'/cancel')->assertOk();

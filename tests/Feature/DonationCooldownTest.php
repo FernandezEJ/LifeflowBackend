@@ -47,7 +47,7 @@ class DonationCooldownTest extends TestCase
     private function assessment(string $result = 'eligible', ?string $at = null): void
     {
         $this->donor->eligibilityAssessments()->create(['result' => $result,
-            'answers' => EligibilityEvaluatorTest::answers(), 'reasons' => [],
+            'answers' => EligibilityEvaluatorTest::legacyAnswers(), 'reasons' => [],
             'assessed_at' => $at ? CarbonImmutable::parse($at)->utc() : now()]);
     }
 

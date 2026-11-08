@@ -141,7 +141,7 @@ class SecurityHardeningTest extends TestCase
                 $this->assertSame('Synthetic', $user->donorProfile()->firstOrFail()->first_name);
             } else {
                 $this->mock(EligibilityCooldown::class)->shouldReceive('submit')->once()->andThrow($error);
-                $response = $this->withToken($token)->postJson('/api/eligibility-assessments', ['answers' => EligibilityEvaluatorTest::answers()]);
+                $response = $this->withToken($token)->postJson('/api/eligibility-assessments', EligibilityEvaluatorTest::payload());
                 $response->assertStatus(500)->assertExactJson(['message' => 'Pre-screening could not be saved. Please try again.']);
                 $this->assertDatabaseCount('eligibility_assessments', 0);
             }

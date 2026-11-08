@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests;
 
+use App\Services\EligibilityEvaluator;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Validator;
@@ -23,10 +24,21 @@ class StoreEligibilityAssessmentRequest extends FormRequest
     // ========================================
     public function rules(): array
     {
-        $keys = ['weightAtLeast50Kg', 'sleptAtLeastFiveHours', 'eatenProperMeal', 'avoidedAlcoholFor24Hours', 'threeMonthsSinceLastDonation', 'recentFeverInfectionOrIllness', 'unusualBleedingWeaknessOrDizziness', 'recentSurgeryOrMajorProcedure', 'medicationAffectingDonation', 'conditionOrTreatmentRequiringWait'];
-        $rules = ['answers' => ['required', 'array:'.implode(',', $keys)]];
+        $keys = array_keys(EligibilityEvaluator::FLAGS);
+        $rules = ['assessment_version' => ['required', Rule::in([EligibilityEvaluator::VERSION])],
+            'answers' => ['required', 'array:'.implode(',', $keys)],
+            'follow_ups' => ['sometimes', 'array:procedureType,procedureWhen,medications,transfusionWhen']];
         foreach ($keys as $key) {
             $rules['answers.'.$key] = ['required', 'string', Rule::in(['YES', 'NO'])];
+        }
+
+        foreach (['procedureType' => 'procedurePast12Months', 'procedureWhen' => 'procedurePast12Months',
+            'medications' => 'medicationsOrSupplements', 'transfusionWhen' => 'everReceivedTransfusion'] as $field => $answer) {
+            $rules['follow_ups.'.$field] = [
+                Rule::excludeIf(fn () => $this->input('answers.'.$answer) !== 'YES'),
+                Rule::requiredIf(fn () => $this->input('answers.'.$answer) === 'YES'),
+                'string', 'min:1', 'max:200', 'not_regex:/[\x00-\x1F\x7F<>]/u',
+            ];
         }
 
         return $rules;
@@ -39,7 +51,7 @@ class StoreEligibilityAssessmentRequest extends FormRequest
     public function after(): array
     {
         return [function (Validator $validator) {
-            foreach (array_diff(array_keys($this->all()), ['answers']) as $key) {
+            foreach (array_diff(array_keys($this->all()), ['answers', 'assessment_version', 'follow_ups']) as $key) {
                 $validator->errors()->add($key, 'This field is not allowed.');
             }
         }];

@@ -6,27 +6,16 @@ use App\Models\AuditLog;
 use App\Models\DonationParticipation;
 use App\Models\DonationRecord;
 use App\Models\DonorProfile;
-use App\Models\EligibilityAssessment;
 use App\Models\User;
 use App\Models\UserVoucher;
 use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Support\Facades\DB;
 
 class DashboardService
 {
     public function summary(User $actor, int $months): array
     {
         $donors = User::where('role', 'donor')->whereNull('deactivated_at');
-        // Same latest-assessment ordering as EligibilityCooldown. These are saved
-        // screening outcomes, not a fresh clinical clearance: no assessment is
-        // unassessed (neither bucket), and the 24-hour retake timer is not a result.
-        // As on mobile, legacy temporarily_ineligible is not eligible; legacy
-        // needs_further_screening is indeterminate and belongs to neither bucket.
-        $latest = EligibilityAssessment::select('result')->whereColumn('user_id', 'users.id')
-            ->orderByDesc('assessed_at')->orderByDesc('id')->limit(1);
-        $eligibility = (clone $donors)->select('id')->selectSub($latest, 'latest_result');
-        $counts = DB::query()->fromSub($eligibility, 'latest_assessments')
-            ->selectRaw('latest_result, COUNT(*) as total')->groupBy('latest_result')->pluck('total', 'latest_result');
+        $counts = AssessmentSummary::counts($donors);
         $blood = DonorProfile::whereIn('user_id', (clone $donors)->select('id'))
             ->selectRaw('blood_type, COUNT(*) as total')->groupBy('blood_type')->pluck('total', 'blood_type');
         $recent = DonationParticipation::with(['user.donorProfile', 'opportunity'])
@@ -38,6 +27,7 @@ class DashboardService
             'timezone' => config('app.calendar_timezone'),
             'stats' => ['donors' => $donors->count(), 'eligible' => (int) ($counts['eligible'] ?? 0),
                 'not_eligible' => (int) ($counts['not_eligible'] ?? 0) + (int) ($counts['temporarily_ineligible'] ?? 0)],
+            'assessment_counts' => $counts,
             'donation_activity' => $this->activity($months),
             'blood_types' => collect(['O+', 'A+', 'B+', 'AB+', 'O-', 'A-', 'B-', 'AB-'])
                 ->map(fn (string $type): array => ['bloodType' => $type, 'count' => (int) ($blood[$type] ?? 0)])->all(),

@@ -3,7 +3,6 @@
 namespace App\Services\Admin;
 
 use App\Models\DonationOpportunity;
-use App\Models\EligibilityAssessment;
 use App\Models\User;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Carbon;
@@ -20,10 +19,7 @@ class SystemReportService
         $from = $month->copy()->utc();
         $until = $month->copy()->addMonth()->utc();
         $donors = User::where('role', 'donor')->whereNull('deactivated_at');
-        $latest = EligibilityAssessment::select('result')->whereColumn('user_id', 'users.id')
-            ->orderByDesc('assessed_at')->orderByDesc('id')->limit(1);
-        $counts = DB::query()->fromSub((clone $donors)->select('id')->selectSub($latest, 'latest_result'), 'latest_assessments')
-            ->selectRaw('latest_result, COUNT(*) as total')->groupBy('latest_result')->pluck('total', 'latest_result');
+        $counts = AssessmentSummary::counts($donors);
         $participations = DB::table('donation_participations as participation')->join('users', 'users.id', '=', 'participation.user_id')
             ->where('users.role', 'donor')->where('participation.joined_at', '>=', $from)->where('participation.joined_at', '<', $until)
             ->selectRaw('participation.status, COUNT(*) as total')->groupBy('participation.status')->pluck('total', 'status');
@@ -43,8 +39,9 @@ class SystemReportService
         return [
             'period' => $month->format('Y-m'), 'generated_at' => now()->toISOString(),
             'data' => [
-                'donor_summary' => ['total' => (int) $counts->sum(), 'eligible' => (int) ($counts['eligible'] ?? 0),
+                'donor_summary' => ['total' => array_sum($counts), 'eligible' => (int) ($counts['eligible'] ?? 0),
                     'not_eligible' => (int) ($counts['not_eligible'] ?? 0) + (int) ($counts['temporarily_ineligible'] ?? 0)],
+                'assessment_counts' => $counts,
                 'donation_summary' => ['total' => (int) $participations->sum(), 'completed' => array_sum(array_column($weekly, 'donations')),
                     'for_verification' => (int) ($participations['for_verification'] ?? 0),
                     'needs_revision' => (int) ($participations['needs_revision'] ?? 0), 'rejected' => (int) ($participations['rejected'] ?? 0)],
@@ -56,6 +53,7 @@ class SystemReportService
                 'completed_donations' => $this->completedRows($completed),
                 'reward_redemptions' => $this->rewardRows($purchases),
                 'notes' => 'Donor Summary uses all current active registered donor accounts and their latest saved assessments, regardless of the selected period. '
+                    .'Preliminary self-assessment results are separate from historical questionnaire results; final screening is performed by qualified personnel. '
                     .'Blood Distribution counts completed donation events during the selected month using current saved blood types; missing or unrecognized blood types are omitted. '
                     .'Total Participations and review statuses use joins during the selected month and current statuses. Completed donations use verification dates, including deduplicated legacy history; undated completions are excluded. '
                     .'Rewards count owned voucher purchases with matching points debits, as in Rewards Analytics. Points issued are positive ledger credits. All monthly activity uses Philippine time (UTC+8). '

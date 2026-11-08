@@ -2,7 +2,6 @@
 
 namespace App\Services\Admin;
 
-use App\Models\EligibilityAssessment;
 use App\Models\User;
 use App\Services\DonorAchievementService;
 use Illuminate\Database\Query\Builder;
@@ -16,15 +15,15 @@ class DonorService
 
     public function listing(array $filters = []): array
     {
-        $latest = EligibilityAssessment::select('result')->whereColumn('user_id', 'users.id')
-            ->orderByDesc('assessed_at')->orderByDesc('id')->limit(1);
-        $users = User::where('role', 'donor')->whereNull('deactivated_at')
+        $donors = User::where('role', 'donor')->whereNull('deactivated_at');
+        $eligibilityCounts = AssessmentSummary::counts($donors);
+        $users = (clone $donors)
             ->leftJoin('donor_profiles', 'donor_profiles.user_id', '=', 'users.id')
             ->select(['users.id', 'users.name', 'users.created_at', 'donor_profiles.blood_type as bloodType'])
-            ->selectSub($latest, 'latest_result');
+            ->selectSub(AssessmentSummary::latest(), 'latest_result')
+            ->selectSub(AssessmentSummary::latest('assessment_version'), 'assessment_version')
+            ->selectSub(AssessmentSummary::latestBucket(), 'assessment_bucket');
         $population = DB::query()->fromSub($users, 'donors');
-        $eligibilityCounts = (clone $population)->selectRaw('latest_result, COUNT(*) as total')
-            ->groupBy('latest_result')->pluck('total', 'latest_result');
         $bloodTypes = (clone $population)->selectRaw("COALESCE(bloodType, 'Unknown') as blood_type")
             ->distinct()->orderBy('blood_type')->pluck('blood_type')->all();
         $top = (clone $population)->leftJoinSub($this->achievements->completedCountsQuery(), 'completions',
@@ -43,10 +42,11 @@ class DonorService
             $query->whereRaw("COALESCE(bloodType, 'Unknown') = ?", [$filters['blood_type']]);
         }
         match ($filters['eligibility'] ?? 'all') {
-            'eligible' => $query->where('latest_result', 'eligible'),
-            'temporarily_ineligible' => $query->whereIn('latest_result', ['not_eligible', 'temporarily_ineligible']),
-            'unassessed' => $query->whereNull('latest_result'),
-            'indeterminate' => $query->whereNotNull('latest_result')->whereNotIn('latest_result', ['eligible', 'not_eligible', 'temporarily_ineligible']),
+            'eligible', 'basic_requirements_met', 'needs_further_review', 'not_eligible', 'needs_further_screening' => $query->where('assessment_bucket', $filters['eligibility']),
+            'temporarily_ineligible' => $query->whereIn('assessment_bucket', ['not_eligible', 'temporarily_ineligible']),
+            'unassessed' => $query->whereNull('assessment_bucket'),
+            'unknown' => $query->where('assessment_bucket', 'indeterminate'),
+            'indeterminate' => $query->whereIn('assessment_bucket', ['indeterminate', 'needs_further_screening']),
             default => null,
         };
         $page = $query->orderByDesc('donors.created_at')->orderByDesc('donors.id')
@@ -56,10 +56,11 @@ class DonorService
 
         return [
             'summary' => [
-                'totalDonors' => (int) $eligibilityCounts->sum(),
+                'totalDonors' => array_sum($eligibilityCounts),
                 'eligible' => (int) ($eligibilityCounts['eligible'] ?? 0),
                 'temporarilyIneligible' => (int) ($eligibilityCounts['not_eligible'] ?? 0) + (int) ($eligibilityCounts['temporarily_ineligible'] ?? 0),
             ],
+            'assessment_counts' => $eligibilityCounts,
             'donors' => $page->getCollection()->map(fn (object $user): array => $this->row($user, $summaries))->all(),
             'topDonors' => $top->map(fn (object $user): array => $this->row($user, $summaries))->all(),
             'bloodTypes' => $bloodTypes,
@@ -74,12 +75,14 @@ class DonorService
             'id' => $user->id,
             'name' => $user->name,
             'bloodType' => $user->bloodType,
-            'eligibility' => match ($user->latest_result) {
+            'eligibility' => match ($user->assessment_bucket) {
                 'eligible' => 'eligible',
                 'not_eligible', 'temporarily_ineligible' => 'temporarily_ineligible',
+                'basic_requirements_met', 'needs_further_review' => $user->assessment_bucket,
                 null => 'unassessed',
                 default => 'indeterminate',
             },
+            'assessment' => ['result' => $user->latest_result, 'version' => $user->assessment_version],
             'totalDonations' => $summaries[$user->id]['total_donations'],
             'achievement' => $summaries[$user->id]['achievement']['label'],
             'joinedDate' => $user->created_at === null ? null : Carbon::parse($user->created_at, config('app.timezone'))

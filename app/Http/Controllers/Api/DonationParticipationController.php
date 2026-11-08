@@ -76,8 +76,8 @@ class DonationParticipationController extends Controller
                     ...$metadata,
                 ], 409);
             }
-            // Legacy non-eligible results never grant permission either.
-            if ($latest->result !== 'eligible') {
+            // Explicit owner-approved V5 path; legacy gates and every surrounding guard remain.
+            if (! $latest->permitsParticipationScreening()) {
                 return response()->json([
                     'reason' => 'evaluation_not_eligible',
                     'message' => 'Your latest pre-screening is still active. You can reassess when the 24-hour window ends. Final eligibility is determined by the donation facility.',

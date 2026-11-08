@@ -89,10 +89,12 @@ class DonorsTest extends TestCase
 
         $expected = ['summary' => ['totalDonors' => 2, 'eligible' => 0, 'temporarilyIneligible' => 0],
             'donors' => array_map(fn (User $donor): array => ['id' => $donor->id, 'name' => $donor->name,
-                'bloodType' => null, 'eligibility' => 'unassessed', 'totalDonations' => 0,
+                'bloodType' => null, 'eligibility' => 'unassessed', 'assessment' => ['result' => null, 'version' => null], 'totalDonations' => 0,
                 'achievement' => 'New Donor', 'joinedDate' => null], [$second, $first])];
         $expected['topDonors'] = array_reverse($expected['donors']);
         $expected['bloodTypes'] = ['Unknown'];
+        $expected['assessment_counts'] = ['basic_requirements_met' => 0, 'needs_further_review' => 0, 'eligible' => 0,
+            'not_eligible' => 0, 'temporarily_ineligible' => 0, 'needs_further_screening' => 0, 'unassessed' => 2, 'indeterminate' => 0];
         $expected['pagination'] = ['currentPage' => 1, 'lastPage' => 1, 'perPage' => 20, 'total' => 2];
         $this->getJson('/api/admin/donors')->assertOk()->assertExactJson($expected);
         $this->getJson('/api/admin/donors')->assertOk()->assertExactJson($expected);
@@ -104,6 +106,8 @@ class DonorsTest extends TestCase
         $this->getJson('/api/admin/donors')->assertOk()->assertExactJson([
             'summary' => ['totalDonors' => 0, 'eligible' => 0, 'temporarilyIneligible' => 0], 'donors' => [],
             'topDonors' => [], 'bloodTypes' => [],
+            'assessment_counts' => ['basic_requirements_met' => 0, 'needs_further_review' => 0, 'eligible' => 0,
+                'not_eligible' => 0, 'temporarily_ineligible' => 0, 'needs_further_screening' => 0, 'unassessed' => 0, 'indeterminate' => 0],
             'pagination' => ['currentPage' => 1, 'lastPage' => 1, 'perPage' => 20, 'total' => 0],
         ]);
     }
@@ -202,8 +206,8 @@ class DonorsTest extends TestCase
         $before = array_map(fn (string $table): array => DB::table($table)->orderBy('id')->get()->toArray(), $tables);
 
         $response = $this->getJson('/api/admin/donors')->assertOk();
-        $this->assertEqualsCanonicalizing(['summary', 'donors', 'topDonors', 'bloodTypes', 'pagination'], array_keys($response->json()));
-        $this->assertEqualsCanonicalizing(['id', 'name', 'bloodType', 'eligibility', 'totalDonations', 'achievement', 'joinedDate'],
+        $this->assertEqualsCanonicalizing(['summary', 'assessment_counts', 'donors', 'topDonors', 'bloodTypes', 'pagination'], array_keys($response->json()));
+        $this->assertEqualsCanonicalizing(['id', 'name', 'bloodType', 'eligibility', 'assessment', 'totalDonations', 'achievement', 'joinedDate'],
             array_keys($response->json('donors.0')));
         $this->assertSame(array_keys($response->json('donors.0')), array_keys($response->json('topDonors.0')));
         $this->assertStringNotContainsString('private@example.test', $response->getContent());

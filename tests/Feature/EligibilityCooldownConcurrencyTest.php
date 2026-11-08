@@ -63,7 +63,7 @@ class EligibilityCooldownConcurrencyTest extends TestCase
         for ($i = 0; $i < 2; $i++) {
             $stream = new InputStream;
             $worker = new Process([PHP_BINARY, '-r', $code, $this->databaseFile, $token,
-                json_encode(['answers' => EligibilityEvaluatorTest::answers()])], base_path());
+                json_encode(EligibilityEvaluatorTest::payload())], base_path());
             $worker->setInput($stream);
             $worker->setTimeout(20);
             $worker->start();

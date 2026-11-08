@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\EligibilityEvaluator;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -10,9 +11,17 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 // SERVER-CREATED ASSESSMENT DATA
 // Controllers supply evaluated data; ownership comes only from the relationship.
 // ========================================
-#[Fillable(['result', 'reasons', 'answers', 'assessed_at'])]
+#[Fillable(['result', 'reasons', 'answers', 'assessed_at', 'assessment_version'])]
 class EligibilityAssessment extends Model
 {
+    /** V5 guidance is not medical clearance. The owner approved both outcomes for joining only. */
+    public function permitsParticipationScreening(): bool
+    {
+        return ($this->assessment_version === EligibilityEvaluator::VERSION
+            && in_array($this->result, ['basic_requirements_met', 'needs_further_review'], true))
+            || ($this->assessment_version === null && $this->result === 'eligible');
+    }
+
     // ========================================
     // SNAPSHOT AND DATE CASTS
     // Returns structured answers/reasons and an ISO assessment timestamp.

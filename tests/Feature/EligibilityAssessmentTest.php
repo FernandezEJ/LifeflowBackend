@@ -40,11 +40,13 @@ class EligibilityAssessmentTest extends TestCase
         $user = User::factory()->create();
         $answers = array_replace(EligibilityEvaluatorTest::answers(), $overrides);
         $response = $this->withToken($user->createToken('test')->plainTextToken)
-            ->postJson('/api/eligibility-assessments', ['answers' => $answers])->assertCreated()
+            ->postJson('/api/eligibility-assessments', EligibilityEvaluatorTest::payload($overrides))->assertCreated()
             ->assertJsonPath('assessment.result', $result)->assertJsonCount($count, 'assessment.reasons')
             ->assertJsonMissingPath('token')->assertJsonMissingPath('assessment.user');
         $saved = $user->eligibilityAssessments()->firstOrFail();
-        $this->assertSame($answers, $saved->answers);
+        $expected = EligibilityEvaluatorTest::payload($overrides);
+        $this->assertSame([...$answers, ...($expected['follow_ups'] ? ['follow_ups' => $expected['follow_ups']] : [])], $saved->answers);
+        $this->assertSame('v5', $saved->assessment_version);
         $this->assertSame($response->json('assessment.reasons'), $saved->reasons);
         $this->assertSame($result, $saved->result);
         $this->assertNotNull($saved->assessed_at);
@@ -58,7 +60,7 @@ class EligibilityAssessmentTest extends TestCase
     // ========================================
     public function test_guests_cannot_access_assessments(): void
     {
-        $this->postJson('/api/eligibility-assessments', ['answers' => EligibilityEvaluatorTest::answers()])->assertUnauthorized();
+        $this->postJson('/api/eligibility-assessments', EligibilityEvaluatorTest::payload())->assertUnauthorized();
         $this->getJson('/api/eligibility-assessments/latest')->assertUnauthorized();
         $this->getJson('/api/eligibility-assessments')->assertUnauthorized();
     }
@@ -103,7 +105,7 @@ class EligibilityAssessmentTest extends TestCase
     {
         $user = User::factory()->create();
         $this->withToken($user->createToken('test')->plainTextToken)
-            ->postJson('/api/eligibility-assessments', $payload)->assertUnprocessable();
+            ->postJson('/api/eligibility-assessments', ['assessment_version' => 'v5', ...$payload])->assertUnprocessable();
         $this->assertDatabaseCount('eligibility_assessments', 0);
     }
 
@@ -117,7 +119,7 @@ class EligibilityAssessmentTest extends TestCase
         $other = User::factory()->create();
         $this->withToken($user->createToken('test')->plainTextToken)
             ->getJson('/api/eligibility-assessments/latest')->assertOk()->assertJsonPath('assessment', null);
-        $data = ['answers' => EligibilityEvaluatorTest::answers(), 'result' => 'eligible', 'reasons' => [], 'assessed_at' => now()];
+        $data = ['answers' => EligibilityEvaluatorTest::legacyAnswers(), 'result' => 'eligible', 'reasons' => [], 'assessed_at' => now()];
         $other->eligibilityAssessments()->create($data);
         for ($i = 0; $i < 21; $i++) {
             $latest = $user->eligibilityAssessments()->create($data);
@@ -146,7 +148,7 @@ class EligibilityAssessmentTest extends TestCase
         $this->withToken($user->createToken('legacy')->plainTextToken);
         $this->getJson('/api/eligibility-assessments/latest')->assertOk()->assertJsonPath('assessment.answers', $answers)->assertJsonPath('assessment.result', $result)->assertJsonPath('cooldown_active', true);
         $this->getJson('/api/eligibility-assessments')->assertOk()->assertJsonCount(6, 'data.0.answers');
-        $this->postJson('/api/eligibility-assessments', ['answers' => EligibilityEvaluatorTest::answers()])->assertStatus(409);
+        $this->postJson('/api/eligibility-assessments', EligibilityEvaluatorTest::payload())->assertStatus(409);
         $this->assertSame($original, $row->fresh()->getRawOriginal());
         $this->assertDatabaseCount('eligibility_assessments', 1);
     }
@@ -165,10 +167,13 @@ class EligibilityAssessmentTest extends TestCase
         $before = DB::table('eligibility_assessments')->orderBy('id')->get()->toJson();
         $migration = require database_path('migrations/2026_09_12_145322_allow_binary_eligibility_results.php');
         $migration->up();
+        $v5 = require database_path('migrations/2026_11_06_132100_add_v5_version_to_eligibility_assessments.php');
+        Schema::table('eligibility_assessments', fn (Blueprint $table) => $table->dropColumn('assessment_version'));
+        $v5->up();
         $this->assertSame($before, DB::table('eligibility_assessments')->orderBy('id')->get()->toJson());
         $this->withToken($user->createToken('upgrade')->plainTextToken)
-            ->postJson('/api/eligibility-assessments', ['answers' => [...EligibilityEvaluatorTest::answers(), 'weightAtLeast50Kg' => 'NO']])
-            ->assertCreated()->assertJsonPath('assessment.result', 'not_eligible');
+            ->postJson('/api/eligibility-assessments', EligibilityEvaluatorTest::payload(['weightAtLeast50Kg' => 'NO']))
+            ->assertCreated()->assertJsonPath('assessment.result', 'needs_further_review');
         $this->assertDatabaseCount('eligibility_assessments', 4);
     }
 }
